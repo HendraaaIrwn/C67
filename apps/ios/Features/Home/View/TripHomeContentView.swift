@@ -6,6 +6,7 @@ struct TripHomeContentView: View {
     var isHistory = false
     let mode: String
     let showAccount: () -> Void
+    var planTrip: () -> Void = {}
 
     private var trips: [PersonalPlanningTrip] {
         presenter.trips.filter { ($0.status == .completed) == isHistory }
@@ -17,7 +18,7 @@ struct TripHomeContentView: View {
                 if presenter.isBusy && presenter.trips.isEmpty {
                     ProgressView("Loading trips…")
                         .frame(maxWidth: .infinity, minHeight: geometry.size.height)
-                } else if let error = presenter.error {
+                } else if let error = presenter.error, presenter.firstItineraryJob == nil {
                     ContentUnavailableView {
                         Label("Trips couldn’t be loaded", systemImage: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90")
                     } description: {
@@ -36,7 +37,7 @@ struct TripHomeContentView: View {
                                                description: Text("Your completed trips will appear here."))
                             .frame(minHeight: geometry.size.height)
                     } else {
-                        TripEmptyView()
+                        TripEmptyView(planTrip: planTrip)
                             .frame(maxWidth: .infinity, minHeight: geometry.size.height)
                     }
                 } else {
@@ -62,7 +63,7 @@ struct TripHomeContentView: View {
                         .padding()
                 }
             }
-            .refreshable { await presenter.load() }
+            .refreshable { await presenter.load(waitForFirstItinerary: false) }
         }
     }
 

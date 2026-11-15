@@ -9,7 +9,7 @@ case "$C67_VERIFY_MODE" in
 esac
 C67_CONTRACT_PYTHON=${C67_CONTRACT_PYTHON:-.venv/bin/python}
 if [[ ! -x "$C67_CONTRACT_PYTHON" ]]; then
-  echo 'Create .venv and install scripts/requirements.txt, or set C67_CONTRACT_PYTHON.' >&2
+  echo 'Create .venv and install scripts/requirements.txt and server/pocket/requirements.txt, or set C67_CONTRACT_PYTHON.' >&2
   exit 2
 fi
 C67_VERIFY_DIR=${C67_VERIFY_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/c67-verify.XXXXXX")}
@@ -27,7 +27,7 @@ npm ci --prefix server/planning --ignore-scripts
 npm run check --prefix server/planning
 npm run format:check --prefix server/planning
 npm test --prefix server/planning
-python3 -m unittest discover -s server/pocket/tests
+"$C67_CONTRACT_PYTHON" -m unittest discover -s server/pocket/tests
 swift test --package-path packages/PocketEngine
 swift test --package-path packages/C67Backend
 git diff --check

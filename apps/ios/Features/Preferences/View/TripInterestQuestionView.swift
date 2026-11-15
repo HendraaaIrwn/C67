@@ -1,82 +1,86 @@
 import SwiftUI
 import C67Domain
 
-/// Sketch HI-FI `PREFERENCES Q1`: what sounds good today. Multi-select chips with Next.
+/// Multi-select themes and preferences for the first trip question.
 struct TripInterestQuestionView: View {
     let selection: Set<TripInterest>
     let toggle: (TripInterest) -> Void
     let next: () -> Void
     let skip: () -> Void
-    var refinements: [PlanningPreferenceLabel] = []
+    var supportedRefinements: [PlanningPreferenceLabel] = []
     var selectedRefinements: Set<String> = []
     var toggleRefinement: (String) -> Void = { _ in }
-    @State private var showsRefinements = false
+    @State private var query = ""
 
-    var body: some View {
-        QuestionScaffold(
-            title: Text("What sounds \(QuestionTitle.highlight("good")) today?"),
-            contentSpacing: 40,
-            skip: skip
-        ) {
-            FlowLayout(spacing: 8, lineSpacing: 14) {
-                ForEach(TripInterest.allCases) { interest in
-                    ChoiceChip(
-                        title: interest.title,
-                        systemImage: interest.systemImage,
-                        isSelected: selection.contains(interest)
-                    ) {
-                        toggle(interest)
-                    }
-                }
-            }
-            .sensoryFeedback(.selection, trigger: selection)
-            if !refinements.isEmpty {
-                Button("Refine interests (\(selectedRefinements.count))") { showsRefinements = true }
-                    .accessibilityIdentifier("pocketRefineInterests")
-            }
-        } footer: {
-            QuestionPrimaryButton("Next", action: next)
-                .disabled(selection.isEmpty)
-        }
-        .sheet(isPresented: $showsRefinements) {
-            PocketRefinementPicker(options: refinements, selected: selectedRefinements, toggle: toggleRefinement)
+    private let quickPicks = ["matcha", "street_food_area", "sunset_viewing", "art_gallery", "city_park", "thrift_shop", "cinema", "bowling_alley", "mangrove_park", "photography_activity", "museum", "spa", "karaoke", "go_kart"]
+
+    private var options: [(option: TripPreferenceCatalog.Option, symbol: String)] {
+        TripPreferenceCatalog.groups.flatMap { group in
+            group.options.map { (option: $0, symbol: group.systemImage) }
         }
     }
-}
 
-private struct PocketRefinementPicker: View {
-    let options: [PlanningPreferenceLabel]
-    let selected: Set<String>
-    let toggle: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(Array(Set(options.map(\.group))).sorted(), id: \.self) { group in
-                    Section(group) {
-                        ForEach(options.filter { $0.group == group && (query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.id.localizedCaseInsensitiveContains(query)) }) { option in
-                            Button { toggle(option.id) } label: {
-                                HStack {
-                                    Text(option.title)
-                                    Spacer()
-                                    if selected.contains(option.id) { Image(systemName: "checkmark") }
-                                }
-                            }
-                            .accessibilityIdentifier("pocketLabel-\(option.id)")
-                            .accessibilityValue(selected.contains(option.id) ? "Selected" : "Not selected")
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selected = options.filter { selectedRefinements.contains($0.option.id) }
+        let visible = term.isEmpty ? options.filter { quickPicks.contains($0.option.id) }.sorted {
+            (quickPicks.firstIndex(of: $0.option.id) ?? 0) < (quickPicks.firstIndex(of: $1.option.id) ?? 0)
+        } : options.filter { String(localized: $0.option.title).localizedStandardContains(term) }
+        QuestionScaffold(title: Text("What sounds \(QuestionTitle.highlight("good")) today?"), contentSpacing: 24, skip: skip) {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search place types or activities", text: $query)
+                        .accessibilityIdentifier("preferenceSearch")
+                    if !query.isEmpty {
+                        Button("Clear search", systemImage: "xmark.circle.fill") { query = "" }
+                            .labelStyle(.iconOnly)
+                    }
+                }
+                .padding(12).background(AppColor.surface, in: .capsule)
+                if term.isEmpty && !selected.isEmpty {
+                    FlowLayout(spacing: 8, lineSpacing: 8) {
+                        ForEach(selected, id: \.option.id) { item in
+                            ChoiceChip(title: item.option.title, systemImage: item.symbol, isSelected: true) { toggleRefinement(item.option.id) }
+                                .accessibilityIdentifier("selectedPreference-\(item.option.id)")
                         }
                     }
                 }
+                Text(term.isEmpty ? "Quick picks" : "Search results").font(.headline)
+                if visible.isEmpty && !term.isEmpty {
+                    ContentUnavailableView.search(text: term)
+                } else {
+                    FlowLayout(spacing: 8, lineSpacing: 8) {
+                        ForEach(visible, id: \.option.id) { item in
+                            ChoiceChip(title: item.option.title, systemImage: item.symbol,
+                                       isSelected: selectedRefinements.contains(item.option.id)) { toggleRefinement(item.option.id) }
+                                .accessibilityIdentifier("pocketLabel-\(item.option.id)")
+                        }
+                    }
+                }
+                if term.isEmpty {
+                    Text("Explore by category").font(.headline)
+                    FlowLayout(spacing: 8, lineSpacing: 8) {
+                        ForEach(TripInterest.allCases) { interest in
+                            ChoiceChip(title: interest.title, systemImage: interest.systemImage,
+                                       isSelected: selection.contains(interest)) { toggle(interest) }
+                        }
+                    }
+                }
+                let extra = supportedRefinements.filter { !TripPreferenceCatalog.ids.contains($0.id) && (term.isEmpty ? selectedRefinements.contains($0.id) : $0.title.localizedStandardContains(term)) }
+                ForEach(extra) { option in
+                    Button { toggleRefinement(option.id) } label: {
+                        Label(option.title, systemImage: "tag")
+                    }
+                    .accessibilityIdentifier("pocketLabel-\(option.id)")
+                }
             }
-            .navigationTitle("Refine interests")
-            .searchable(text: $query, prompt: "Search interests")
-            .safeAreaInset(edge: .bottom) {
-                QuestionPrimaryButton("Done") { dismiss() }
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("pocketRefinementsDone")
-                    .padding()
-                    .background(.regularMaterial)
+        } footer: {
+            HStack {
+                Text("\(selection.count + selectedRefinements.count) selected").font(.subheadline)
+                Spacer()
+                QuestionPrimaryButton("Next", action: next)
+                    .disabled(selection.isEmpty && selectedRefinements.isEmpty)
             }
         }
     }

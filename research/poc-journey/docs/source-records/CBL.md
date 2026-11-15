@@ -740,9 +740,31 @@ Use persisted cache and per-source rate/concurrency/page/token/credit budgets. R
 Documentation provenance: the 9 November Context Lab checkpoint; inspected 10–12 November pilot/benchmark reports; the preceding Pocket Engine and venue-enrichment chats; and this chat's PR, UI, homelab, TestFlight, catalogue and Jakarta/blind-spot discussions through 13 November. Missing raw/local attachments stay explicitly missing. This update records those observations and decisions; it does not repeat their experiments.
 
 
-## 1. Current concept and source precedence — updated 13 November 2026
+## 0Q. Preferences, Jakarta discovery and trip handoff — 14 November 2026
 
-The app helps travellers choose places, review a feasible order/timing proposal, adjust it and save the trip. The current native product uses Pocket Engine through C67Domain/C67Data with MapKit, WeatherKit and optional catalogue/Luna services. Read sections 0J–0P and the [current handoff](#current-handoff) for the latest decisions, implementation, observed results and unresolved policies. Context Lab, Foundation Lab, E5 and earlier routing experiments retain their own dated evidence and are not automatically active production dependencies.
+### Decisions and implementation
+
+This chat focused on turning user preferences into relevant place candidates. Earlier catalogue, routing, homelab and TestFlight work remains in its own checkpoint. The app presents seven broad themes and an expanded set of detailed preferences. E5 was selected for the next model integration step. This version translates selected preferences into deterministic English MapKit queries.
+
+- Unrelated preferences generate separate searches. The example of Ramen shop, Independent bookstore and Jogging produced `Ramen shop`, `Independent bookstore` and `jogging park`. The app interleaves and deduplicates their candidates. Each load runs up to four queries, with additional terms rotated on refresh.
+- Discovery and manual destination search use a temporary 60 km radius around central Jakarta. The app requires the enclosing MapKit region and filters candidates by coordinates and country code when supplied. The radius is a product boundary. The administrative DKI boundary and expansion of Pocket's itinerary area are separate work.
+- The flow is preferences → recommendations → place selection → main spot → optional duration → planning attempt. Refresh retains the selection. My Places lets the user remove places without a selection cap. The survey hands off directly after the removal of Confirm trip. A missing starting point, visit availability or applicable consent can still require input. The planner currently accepts at most six places and supports its existing Jakarta Selatan and Kemayoran areas.
+
+Implementation details and verification are recorded in the [recommendations checkpoint](../../../docs/tasks/recommendations-first-flow.md) and [Jakarta discovery and direct processing](../../../docs/tasks/jakarta-discovery-direct-processing.md).
+
+### Observed results and closure
+
+On iPhone 18 Pro Max Simulator running iOS 27.2, the mock flow retained seven selections in My Places and when returning from the survey. The walkthrough found a stale planner message that continued to cover Next after the selection was reduced. The banner was moved to the planning screens and clears when the selection changes. A retest reduced seven places to three and passed through to a mock itinerary with a one-hour main-spot visit.
+
+In the live MapKit walkthrough, the sample returned Jakarta ramen venues and a jogging result in an apartment complex. Public access to the jogging result remained unknown. The exact Independent bookstore query returned no local candidates. A separate native diagnostic returned 24 results for the broader `bookstore` query, with independence unverified. The app now presents an empty local result separately from a provider error. In a live partial-result retry, Refresh retained the selected place. The live walkthrough reached Visit availability after the survey. The unsigned Release build, 44 selected unit tests and two targeted mock UI tests passed. [Verification evidence](../../../docs/tasks/jakarta-discovery-direct-processing.md#simulator-walkthrough)
+
+
+
+The user accepted empty results as expected when MapKit has no match and closed this implementation scope. That closes the selection, geographic filtering, empty-state and survey-handoff work in this chat. E5 integration, accuracy and freshness across preferences, iPhone performance and routing validation remain separate. The base recommendation flow was pushed as `b71eae3` on `gi/pocket-ui`. The Jakarta boundary, direct processing, and walkthrough fixes were verified in the local checkout.
+
+## 1. Current concept and source precedence — updated 14 November 2026
+
+The app helps travellers choose places, review a feasible order/timing proposal, adjust it and save the trip. The current local discovery flow uses native MapKit and hands selected places to Pocket Engine. Read [the current handoff](#current-handoff) for the 14 November closure and sections 0J–0P for prior catalogue, platform and release evidence.
 
 Sections 2–9 below preserve the 29 October concept and open questions. Later explicit user decisions take precedence. In particular, do not resume Google Places, assume browsing exists merely because an LLM is configured, or treat a TestFlight submission as external publication. The latest catalogue work is proposed offline development-time collection for Jakarta; it has not been executed by this documentation task.
 

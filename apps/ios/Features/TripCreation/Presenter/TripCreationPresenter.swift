@@ -11,25 +11,26 @@ import C67Domain
     var selected: [RecommendedPlace]
     var mainSpot = MainSpotChoice.automatic
     var stay: StayDuration?
+    private var availabilityIDs: Set<UUID> = []
+    var availabilityPlaces: [RecommendedPlace] { selected.filter { availabilityIDs.contains($0.id) } }
     var query = ""
     private(set) var results: [RecommendedPlace] = []
     private(set) var isSearching = false
     private(set) var searchError: String?
     private(set) var isProcessing = false
     private(set) var isSuggesting = false
+    private(set) var recommendationError: String?
     private(set) var batch = RecommendationsBatch(places: [], warnings: [], synthetic: false)
     private(set) var reviewProposal: PlanProposal?
     var error: String?
-    private(set) var recommendationBase: [RecommendedPlace] = []
-    private(set) var chosenRecommendations: [PlanningPlace] = []
-    private var offeredCandidates: [UUID: RecommendedPlace] = [:]
-    private var suggestionInput: PlanningInput?
+    private var recommendationAnswers: PreferenceAnswers?
+    private var recommendationPage = 0
+    private var recommendationGeneration = 0
+    private var recommendationTask: Task<RecommendationsBatch, any Error>?
     private let interactor: TripCreationInteractor
     private let basePreferences: String
     private var searchGeneration = 0
-    var missingVisitAvailability: Bool {
-        planning.supportsOnDevicePlanning && selected.contains { !$0.place.availabilityVerified && $0.place.visitConfirmation == nil }
-    }
+    private var restoredJobID: UUID?
 
     init(planning: PlanningPresenter, mode: String, specificPlace: Bool, interactor: TripCreationInteractor) {
         self.planning = planning
@@ -41,16 +42,40 @@ import C67Domain
     }
 
     var route: TripCreationRoute { path.last ?? root }
-    var canConfirm: Bool {
+    var needsPocketSettings: Bool {
+        guard let code = planning.firstItineraryJob?.errorCode else { return false }
+        return ["POCKET_CONNECTION_REQUIRED", "POCKET_CONNECTION_REJECTED", "POCKET_ORDER_ENDPOINT_MISSING"].contains(code)
+    }
+    var checksExistingRequest: Bool {
+        guard let job = planning.firstItineraryJob else { return false }
+        return job.status == .running || job.status == .queued
+    }
+    var canPlan: Bool {
         guard let input = planning.draftInput else { return false }
-        let purpose: PlanningPurpose = planning.supportsOnDevicePlanning && root != .places ? .suggest : .plan
-        return (try? input.validate(purpose: purpose)) != nil
+        return (try? input.validate(purpose: .plan)) != nil
+    }
+
+    var planningHandoffMessage: String? {
+        guard !planning.supportsOnDevicePlanning, selected.count > 6 else { return nil }
+        return "All \(selected.count) places are kept for this session. Itinerary creation supports up to six places for now."
     }
 
     func advance(_ step: PreferenceStep, skip: Bool = false) {
         guard route == .question(step) else { return }
         if skip { answers.clear(step) }
-        push(step.next.map { .question($0) } ?? .confirmation)
+        error = nil
+        if step == .interests {
+            if recommendationAnswers != answers {
+                recommendationGeneration += 1
+                recommendationAnswers = nil
+                recommendationPage = 0
+                batch = .init(places: [])
+                recommendationError = nil
+            }
+            push(.recommendations)
+        } else {
+            push(step.next.map { .question($0) } ?? .recommendations)
+        }
     }
 
     func push(_ route: TripCreationRoute) {
@@ -59,8 +84,9 @@ import C67Domain
     }
 
     func toggle(_ item: RecommendedPlace) {
+        error = nil
         if let index = selected.firstIndex(where: { $0.id == item.id }) { selected.remove(at: index) }
-        else if selected.count < 6 { selected.append(item) }
+        else { selected.append(item) }
         if let id = mainSpot.placeID, !selected.contains(where: { $0.id == id }) { mainSpot = .automatic; stay = nil }
         syncPlaces()
     }
@@ -87,83 +113,109 @@ import C67Domain
     }
 
     func syncPlaces() {
-        planning.places = selected.map(\.place)
+        planning.places = selected.map { item in
+            var place = item.place
+            if item.id == mainSpot.placeID, let seconds = stay?.visitSeconds { place.visitSeconds = seconds }
+            return place
+        }
         planning.draftChanged()
     }
 
-    func confirm() async {
-        syncPlaces()
-        planning.preferences = preferenceText
-        syncEnginePreferences()
-        planning.draftChanged()
-        guard canConfirm else { error = PlanningError.invalidInput.localizedDescription; return }
-        error = nil
-        if root == .places { push(.mainSpot) }
-        else {
-            recommendationBase = selected
-            chosenRecommendations = []
-            _ = await suggest()
-            guard !Task.isCancelled, !planning.privateAccessBlocked else { return }
-            push(.recommendations)
-        }
+    func loadRecommendationsIfNeeded() async {
+        guard recommendationAnswers != answers else { return }
+        _ = await suggest()
     }
 
     func suggest() async -> RecommendationsBatch? {
-        guard !Task.isCancelled, !isProcessing, !planning.isBusy else { return nil }
-        planning.places = recommendationBase.map(\.place)
-        planning.draftChanged()
-        if suggestionInput != planning.draftInput {
-            offeredCandidates = [:]
-            suggestionInput = planning.draftInput
-            batch = .init(places: [])
+        guard !Task.isCancelled, route == .recommendations, !isSuggesting, !planning.isBusy else { return nil }
+        let snapshot = answers
+        recommendationGeneration += 1
+        let generation = recommendationGeneration
+        let session = planning.sessionGeneration
+        let queries = snapshot.discoveryQueries
+        // Rotate a bounded batch of queries on refresh; this never limits selected places.
+        let count = min(4, queries.count)
+        let offset = recommendationPage * count % queries.count
+        let window = (0 ..< count).map { queries[(offset + $0) % queries.count] }
+        isSuggesting = true
+        recommendationError = nil
+        let request = Task {
+            try await interactor.recommend(queries: window, near: planning.origin, synthetic: mode.hasPrefix("Mock"))
         }
-        isProcessing = true; isSuggesting = true
-        defer { isProcessing = false; isSuggesting = false }
-        await planning.request(.suggest)
-        guard !Task.isCancelled, !planning.privateAccessBlocked,
-              let job = planning.job, job.purpose == .suggest, job.status == .succeeded,
-              job.input == planning.draftInput, let result = job.result, planning.error == nil else {
-            error = planning.error
+        recommendationTask = request
+        defer {
+            if generation == recommendationGeneration { isSuggesting = false; recommendationTask = nil }
+        }
+        do {
+            let updated = try await withTaskCancellationHandler {
+                try await request.value
+            } onCancel: { request.cancel() }
+            guard !Task.isCancelled, generation == recommendationGeneration, snapshot == answers,
+                  session == planning.sessionGeneration, route == .recommendations else { return nil }
+            batch = updated
+            recommendationAnswers = snapshot
+            recommendationPage += 1
+            return updated
+        } catch {
+            guard !Task.isCancelled, !(error is CancellationError), generation == recommendationGeneration,
+                  snapshot == answers, session == planning.sessionGeneration, route == .recommendations else { return nil }
+            recommendationError = "Recommendations are unavailable. Refresh to try again. Your selected places are kept."
             return nil
         }
-        error = nil
-        batch = .init(result: result)
-        for item in batch.places { offeredCandidates[item.id] = item }
-        return batch
     }
 
-    func chooseRecommendations(_ additional: [PlanningPlace]) {
-        var known = Set(recommendationBase.map(\.id))
-        let accepted = additional.compactMap { place -> RecommendedPlace? in
-            guard let item = offeredCandidates[place.id], known.insert(place.id).inserted else { return nil }
-            return item
-        }.prefix(min(planning.supportsOnDevicePlanning ? 6 : 3, max(0, 6 - recommendationBase.count)))
-        chosenRecommendations = accepted.map(\.place)
-        selected = recommendationBase + accepted
-        if let id = mainSpot.placeID, !selected.contains(where: { $0.id == id }) { mainSpot = .automatic; stay = nil }
+    func cancelRecommendations() {
+        recommendationGeneration += 1
+        recommendationTask?.cancel()
+        recommendationTask = nil
+        isSuggesting = false
+    }
+
+    func finishChoosingPlaces() {
+        guard !selected.isEmpty else { return }
+        error = nil
         syncPlaces()
         push(.mainSpot)
     }
 
     func finishMainSpot() async {
         guard route == .mainSpot else { return }
-        if mainSpot.asksForStay { push(.stay) }
-        else { await plan() }
+        if !planning.supportsOnDevicePlanning, mainSpot.asksForStay { push(.stay) }
+        else { await finishSurvey() }
+    }
+
+    func finishSurvey() async {
+        guard route == .mainSpot || route == .stay, !selected.isEmpty else { return }
+        await plan()
     }
 
     func plan() async {
         guard !Task.isCancelled, !isProcessing, !planning.isBusy else { return }
-        if missingVisitAvailability || planning.enginePreferences.map({ $0.usesLuna && !$0.allowsAIProcessing }) == true {
-            error = "Review visit availability and schedule advice consent. Unknown hours are not treated as open."
-            push(.availability)
-            return
+        if let job = planning.firstItineraryJob, job.id == restoredJobID {
+            let input = job.command?.input ?? job.input
+            if selected.map(\.id) == input.places.map(\.id) {
+                planning.enginePreferences?.mainSpotID = mainSpot.placeID
+                planning.draftChanged()
+                await planFirstItinerary()
+                restoredJobID = planning.firstItineraryJob?.id
+                return
+            }
         }
-        if let id = mainSpot.placeID, let seconds = stay?.visitSeconds,
-           let index = selected.firstIndex(where: { $0.id == id }) { selected[index].place.visitSeconds = seconds }
         syncPlaces()
         planning.preferences = preferenceText
         syncEnginePreferences()
         planning.draftChanged()
+        if let message = planningHandoffMessage { error = message; return }
+        if planning.supportsOnDevicePlanning {
+            await planFirstItinerary()
+            return
+        }
+        guard selected.allSatisfy({ TripDiscoveryArea.contains($0.place.location) }) else {
+            error = "Some selected places have invalid coordinates. Choose their locations again."
+            return
+        }
+        guard planning.origin != nil else { error = "Choose a starting point to prepare your itinerary."; return }
+        guard canPlan else { error = PlanningError.invalidInput.localizedDescription; return }
         isProcessing = true; error = nil
         defer { isProcessing = false }
         await planning.request()
@@ -177,10 +229,52 @@ import C67Domain
         push(.review)
     }
 
+    func openFirstItinerary(_ job: PlanningJob) {
+        restoredJobID = job.id
+        let input = job.command?.input ?? job.input
+        if let id = input.enginePreferences?.mainSpotID { mainSpot = .place(id) }
+        if let proposal = job.result?.proposal, job.status == .succeeded {
+            reviewProposal = proposal
+            push(.review)
+        } else {
+            if let code = job.errorCode { error = PlanningError.failed(code).localizedDescription }
+            push(.mainSpot)
+        }
+    }
+
+    private func planFirstItinerary() async {
+        guard planning.origin != nil else { error = "Choose a starting point to prepare your itinerary."; return }
+        planning.mode = .automobile
+        planning.preservesPlaceOrder = false
+        planning.enginePreferences?.mainSpotID = mainSpot.placeID
+        planning.draftChanged()
+        isProcessing = true; error = nil
+        defer { isProcessing = false }
+        let routeBeforeRequest = route
+        await planning.request(.firstItinerary)
+        guard !Task.isCancelled, !planning.privateAccessBlocked, route == routeBeforeRequest else { return }
+        if planning.error == nil, let job = planning.job, job.purpose == .firstItinerary,
+           let proposal = job.result?.proposal {
+            availabilityIDs = []
+            reviewProposal = proposal
+            push(.review)
+        } else {
+            let result = planning.job?.result
+            let incomplete = Set(result?.candidates.map(\.id) ?? [])
+            if route == .availability { availabilityIDs.formUnion(incomplete) }
+            else { availabilityIDs = incomplete }
+            if !availabilityPlaces.isEmpty, route != .availability { push(.availability) }
+            error = planning.error ?? result?.warnings.prefix(3).joined(separator: "\n") ?? "Your itinerary could not be prepared. Try again."
+        }
+    }
+
     var preferenceText: String {
         var lines: [String] = basePreferences.isEmpty ? [] : [basePreferences]
         let interests = TripInterest.allCases.filter { answers.interests.contains($0) }.map { String(localized: $0.title) }
         if !interests.isEmpty { lines.append("Interests: " + interests.joined(separator: ", ")) }
+        let refinements = TripPreferenceCatalog.groups.flatMap(\.options)
+            .filter { answers.refinements.contains($0.id) }.map { String(localized: $0.title) }
+        if !refinements.isEmpty { lines.append("Detailed preferences: " + refinements.joined(separator: ", ")) }
         if let value = answers.popularity { lines.append("Place preference: " + String(localized: value.title)) }
         if let value = answers.pace { lines.append("Preferred pace: " + String(localized: value.title)) }
         if let value = answers.timing { lines.append("Timing wish: " + String(localized: value.title)) }
@@ -202,18 +296,12 @@ import C67Domain
         guard let index = selected.firstIndex(where: { $0.id == id }), selected[index].place.visitConfirmation != nil else { return }
         selected[index].place.visitConfirmation = nil; syncPlaces()
     }
-    func setVisitTiming(_ id: UUID, date: Date, timing: PlanningVisitTiming?) {
-        guard let index = selected.firstIndex(where: { $0.id == id }) else { return }
-        selected[index].place.preferredAfter = timing == nil ? nil : date
-        selected[index].place.visitTiming = timing
-        syncPlaces()
-    }
-
     private func syncEnginePreferences() {
         guard planning.supportsOnDevicePlanning else { return }
         var preferences = planning.enginePreferences ?? PlanningPreferences()
         preferences.themes = Set(answers.interests.map(\.rawValue))
-        preferences.labels = answers.refinements
+        let supportedLabels = Set(planning.preferenceLabels.map(\.id))
+        preferences.labels = answers.refinements.intersection(supportedLabels)
         planning.enginePreferences = preferences
     }
 }

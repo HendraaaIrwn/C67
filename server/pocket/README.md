@@ -1,49 +1,52 @@
-# Pocket catalog and Luna advice
+# Pocket reasonable ordering and legacy visit research
 
-The maintained Python service supplies independent place evidence and bounded schedule-choice advice. The iOS app performs preference matching, route estimation, schedule validation, and local trip storage. See the [wire contract](../../contracts/api/openapi.json) and [native integration](../../docs/guides/pocket-engine-integration.md).
+New native itineraries call authenticated `POST /v1/order` and poll
+`GET /v1/order/jobs/{requestID}`. The server requests **untimed** activity ordering
+from Luna: every selected place stays in the answer, with no catalog, geographic
+gate, six-place cap, hours research or ETA prerequisite. Optional Open-Meteo
+forecasts and Astral 3.2 light windows are supplied as context. Unknown estimates
+stay null. Exact IDs, manual order, estimates and context references are validated.
+No model-generated numeric weather/light facts are displayed as source data.
 
-## Configure and run
+Ordering uses one provider attempt. Polls and identical submissions read the same
+persisted job. Failed/interrupted jobs never restart automatically; the traveller
+must explicitly retry with a new request ID. Original commands, results and private
+context/answer snapshots stay in the protected data directory. Do not publish
+these private records or log authorization headers.
 
-Python 3.11+ is sufficient for the standard-library server. Live Luna advice also uses `curl` and system TLS trust. The Docker image includes both.
+The current supported ordering transport is native `responses` with completed
+Luna/max metadata. The older alias chat transport remains for legacy operations.
+Provider metadata establishes the reported identity, not upstream implementation.
+WeatherKit REST is not wired into ordering; Open-Meteo is the authorized current
+fallback. Weather failures do not block an order. Solar calculations do not prove
+viewpoint access, visibility or arrival feasibility. See [integration](../../docs/guides/pocket-engine-integration.md).
+
+## Legacy timed planning
+
+The maintained service researches the traveller's selected place IDs, names, pins, available addresses and websites at request time. It does not serve or initialize a venue catalog. It is separate from Supabase and the earlier Node planner. Legacy timed trips keep Apple ETA and schedule validation; all Pocket personal trips remain on device.
+
+`POST /v1/visits/resolve` accepts an authenticated asynchronous research job. Poll `GET /v1/visits/jobs/{jobID}`. Identical request IDs resume their job; changed selections must use a new ID. Jobs and full source snapshots are stored in the private data directory. A completed research job may contain unresolved places; completed research does not establish every visit's feasibility.
+
+Luna transport uses streamed content and requires the provider’s actual completed response and expected model alias. Transient transport failures retry the same model once; interrupted output is rejected.
+
+The server asks Luna for focused search queries, searches through DDGS, retrieves actual pages, follows branch visitor/contact links and uses Playwright for rendered content where necessary. Search snippets are not operating-hour evidence. Luna extracts atomic claims with source IDs and exact supporting quotations. A separate Luna review may reject claims. Unknown or conflicting hours/access remain unresolved. A further search attempt targets missing evidence. Luna suggests visit duration and soft visit timing separately from operator-imposed rules. `POST /v1/advice/visits` selects an immutable, locally validated schedule and supplies its reasoning. The app revalidates the selected option. No substitute model or invented hours are used after a failure.
+
+## Local setup
+
+Create a Python 3.12 virtual environment, install `requirements.txt`, and run `python -m playwright install chromium`. Copy `.env.example` into ignored `.env`, supply a random read token of at least 24 characters and the provider key (or its private env-file pointer). Never put the provider key in the app. Then run from the repo root:
 
 ```sh
-cp server/pocket/.env.example server/pocket/.env
-# Set private tokens and provider settings before starting.
-python3 server/pocket/src/server.py
+python server/pocket/src/server.py --env-file server/pocket/.env --data-dir .local/visit-resolution
 ```
 
-The process loads `server/pocket/.env` and defaults to loopback port 8792. Its default SQLite directory is `server/pocket/.local/server/`. Generate different read/write tokens of at least 24 characters. Set the provider HTTPS base including `/v1`, its API key, and the daily advice cap. Failed upstream attempts consume a reservation. Keep `.env` readable only by its owner.
+Default bind is `127.0.0.1:8792`. The current default transport is `POCKET_LLM_PROTOCOL=responses`; it requires a completed native response with reported Luna model and reasoning effort `max`. `chat-completions` retains the earlier tested alias transport. The current ordering acceptance is recorded separately from historical research/advice acceptance. `POCKET_HOST`, `POCKET_PORT`, and optional `C67_BROWSER` override the bind and local Chromium executable. Set the app's Pocket settings URL and read token. Release connections require trusted HTTPS. No provider key is sent to the iPhone.
 
-From the repository root, the local Docker recipe uses a persistent volume and host loopback.
-
-```sh
-docker compose -f server/pocket/compose.yml up -d --build
-```
-
-Use the [homelab deployment](../deploy/pocket/README.md) for Cloudflare Tunnel ingress. Preserve the SQLite volume across updates. Seed initialization inserts missing identities and preserves stored evidence.
-
-## Resources and endpoints
-
-The canonical seed and 62-label taxonomy live in `packages/PocketEngine/Sources/PocketEngine/Resources/`. Native execution resolves these files from the checkout independently of the working directory. Docker copies them into `/app/resources` and sets `POCKET_RESOURCE_DIR`. `POCKET_SEED_CATALOG` can point to a separate reviewed seed file.
-
-| Endpoint | Access |
-| --- | --- |
-| `GET /health` | Public health status |
-| `GET /v1/catalog` | Read bearer token |
-| `POST /v1/advice/visits` | Read bearer token, bounded quota/concurrency |
-| `POST /v1/evidence/import` | Write bearer token, local administration |
-| `POST /v1/providers/tomtom/search` | Optional provider configuration, excluded from the beta ingress |
-
-The beta ingress publishes only health, catalog, and advice. It limits request bodies to 80 KB and uses a timeout above the upstream time budget. Authorization headers, request bodies, and provider keys must stay out of logs. Import reviewed evidence locally with `--import-evidence`; use `--import-identities` for reviewed catalog identities.
-
-A shared read token serves invited beta testers. It is separate from the write token and provider key. The app stores it in Keychain through Account > Pocket settings.
+The Docker recipe packages this maintained resolver and the existing provider credential helper, with no catalog resources. `docker compose -f server/pocket/compose.yml up -d --build` is a deployment action, separate from local source/test work. Put a trusted HTTPS proxy in front, permit health plus the ordering/job and legacy research/advice routes, permit JSON bodies up to 200 KB, and allow over 310 seconds for synchronous schedule advice. Ordering/research jobs poll independently of generation/crawl duration. Do not log Authorization or request bodies. The crawler checks robots policies and rejects private network URLs/redirects; sites may still block access. No free crawler guarantees access to every source.
 
 ## Verification
 
 ```sh
-python3 -m unittest discover -s server/pocket/tests
+python -m unittest discover -s server/pocket/tests -v
 ```
 
-The suite checks resource relocation, the real local HTTP entry point, read authorization, and persistence without external providers. See [repository verification](../../docs/testing/verification.md) for Docker and client checks.
-
-The original experimental service remains a preserved [Pocket Lab snapshot](../../research/poc-journey/apps/c67-pocket-engine-lab/Server/). Product changes belong here.
+These tests use synthetic sources and model responses to check exact-quote rejection, independent review, unknown branch identity, reservation conditions, model/truncation rejection, source extraction, private-address rejection, job retries and authenticated HTTP without a catalog route. Ordering tests also cover complete selection preservation, unknown duration, optional weather failure, invalid sources, manual-order constraints and no regeneration on duplicate/terminal requests. Actual web/Luna and native UI acceptance are recorded in [the runtime task](../../docs/tasks/pocket-runtime-visit-resolution.md). Container, shared-server and TestFlight acceptance are separate.

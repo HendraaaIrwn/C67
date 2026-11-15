@@ -1,6 +1,26 @@
 import XCTest
 
 final class RecommendationsUITests: XCTestCase {
+    @MainActor func testPreferenceSearchAndSelectionRemainAvailable() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--skip-splash"]
+        app.launch()
+        XCTAssertTrue(app.buttons["homePlanTrip"].waitForExistence(timeout: 10))
+        app.buttons["homePlanTrip"].tap()
+        let search = app.textFields["preferenceSearch"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("museum")
+        let option = app.buttons["pocketLabel-museum"]
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        option.tap()
+        XCTAssertTrue(app.staticTexts["1 selected"].exists)
+        app.buttons["Clear search"].tap()
+        XCTAssertTrue(app.buttons["selectedPreference-museum"].waitForExistence(timeout: 5))
+        app.buttons["selectedPreference-museum"].tap()
+        XCTAssertTrue(app.staticTexts["0 selected"].exists)
+    }
+
     @MainActor func testSelectedPlacesRemoveButtonHasUsableTarget() {
         let app = XCUIApplication()
         app.launchArguments = ["--recommendations-added-preview"]
@@ -41,16 +61,16 @@ final class RecommendationsUITests: XCTestCase {
         app.launch()
         openMockCreation(app, recommendations: true)
         XCTAssertTrue(app.navigationBars["Recommendations"].waitForExistence(timeout: 10))
-        let candidate = app.buttons["Synthetic reading stop"]
+        let candidate = app.buttons["Synthetic tourist attraction 1"]
         XCTAssertTrue(candidate.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["recommendationsNext"].isEnabled)
+        XCTAssertTrue(app.staticTexts["3 places selected"].exists)
         candidate.tap()
-        XCTAssertTrue(app.staticTexts["1 of 1 places selected"].exists)
+        XCTAssertTrue(app.staticTexts["4 places selected"].exists)
         app.buttons["My Places"].tap()
         XCTAssertTrue(app.navigationBars["Places"].waitForExistence(timeout: 5))
-        app.buttons["Remove Synthetic reading stop"].tap()
+        app.buttons["Remove Synthetic tourist attraction 1"].tap()
         app.buttons["Close"].tap()
-        XCTAssertTrue(app.staticTexts["0 of 1 places selected"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["3 places selected"].waitForExistence(timeout: 5))
         candidate.tap()
         app.buttons["recommendationsNext"].tap()
         XCTAssertTrue(app.buttons["Next"].waitForExistence(timeout: 5))
@@ -58,19 +78,18 @@ final class RecommendationsUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Itinerary"].waitForExistence(timeout: 10))
     }
 
-    @MainActor func testThreeSelectionsEnforceLimitAndAllowUndo() {
+    @MainActor func testCanSelectMoreThanThreeAndUndo() {
         let app = XCUIApplication()
         app.launchArguments = ["--recommendations-added-preview"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["3 of 3 places selected"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["3 places selected"].waitForExistence(timeout: 10))
         let first = app.buttons["ALDI’S BURGER"]
         let pizza = app.buttons["Pizza 4P's Indonesia"]
-        XCTAssertFalse(pizza.isEnabled)
-        first.tap()
-        XCTAssertTrue(app.staticTexts["2 of 3 places selected"].exists)
         XCTAssertTrue(pizza.isEnabled)
         pizza.tap()
-        XCTAssertTrue(app.staticTexts["3 of 3 places selected"].exists)
+        XCTAssertTrue(app.staticTexts["4 places selected"].exists)
+        first.tap()
+        XCTAssertTrue(app.staticTexts["3 places selected"].exists)
         app.buttons["recommendationsNext"].tap()
         XCTAssertTrue(app.alerts["Design preview"].waitForExistence(timeout: 5))
     }
@@ -79,7 +98,7 @@ final class RecommendationsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--recommendations-preview", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["0 of 3 places selected"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["0 places selected"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["My Places"].isHittable)
         XCTAssertTrue(app.buttons["recommendationsNext"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())

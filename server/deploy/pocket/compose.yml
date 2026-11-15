@@ -11,7 +11,10 @@ services:
     read_only: true
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
-    pids_limit: 64
+    pids_limit: 256
+    shm_size: 256m
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m
     healthcheck:
       test: [CMD, curl, --fail, --silent, --max-time, "3", "http://127.0.0.1:8792/health"]
       interval: 30s
