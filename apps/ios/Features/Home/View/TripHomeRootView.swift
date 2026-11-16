@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import C67Domain
 #if DEBUG
     import C67Data
@@ -16,6 +17,7 @@ struct TripHomeRootView: View {
     @State private var historyPath: [UUID] = []
     @State private var location = PlanningLocation()
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(presenter: PlanningPresenter, mode: String, accountPresenter: AccountPresenter?) {
@@ -41,10 +43,10 @@ struct TripHomeRootView: View {
             case .location:
                 PlanningSearchSheet(near: presenter.origin, title: "Starting point", select: selectLocation)
             case .account:
-                if presenter.supportsOnDevicePlanning {
+                if let accountPresenter {
+                    AccountView(presenter: accountPresenter, appleOnly: mode == "Pocket • authenticated")
+                } else if presenter.supportsOnDevicePlanning {
                     PocketConnectionView(presenter: presenter, dismiss: dismissSheet)
-                } else if let accountPresenter {
-                    AccountView(presenter: accountPresenter)
                 } else {
                     NavigationStack {
                         ContentUnavailableView("Sign-in needs live mode", systemImage: "person.crop.circle",
@@ -87,10 +89,25 @@ struct TripHomeRootView: View {
                 NavigationStack(path: $tripPath) {
                     TripHomeContentView(presenter: presenter, mode: mode, showAccount: showAccount, planTrip: addTrip)
                         .safeAreaInset(edge: .top, spacing: 0) {
-                            TripHomeHeader(locationTitle: presenter.originLabel,
-                                           chooseLocation: chooseLocation, addTrip: addTrip, addSpecificPlace: addSpecificPlace,
-                                           isBusy: presenter.isBusy,
-                                           isLocating: location.isRequesting)
+                            VStack(alignment: .leading, spacing: 4) {
+                                TripHomeHeader(locationTitle: presenter.originLabel,
+                                               chooseLocation: chooseLocation, addTrip: addTrip, addSpecificPlace: addSpecificPlace,
+                                               isBusy: presenter.isBusy, isLocating: location.isRequesting)
+                                if presenter.origin == nil, location.permissionDenied || location.error != nil {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(location.permissionDenied ? "Location access is off" : "Couldn’t get your location")
+                                            .font(.footnote).foregroundStyle(.secondary)
+                                        HStack {
+                                            if location.permissionDenied {
+                                                Button("Open Settings") {
+                                                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                                                }
+                                            } else { Button("Try again") { location.request() } }
+                                            Button("Choose location manually", action: chooseLocation)
+                                        }.font(.footnote)
+                                    }.padding(.horizontal, 16).padding(.bottom, 8)
+                                }
+                            }
                         }
                         .safeAreaInset(edge: .bottom) {
                             if let job = presenter.firstItineraryJob {
@@ -134,10 +151,9 @@ struct TripHomeRootView: View {
     private func addSpecificPlace() { beginCreation(specificPlace: true) }
 
     private func beginCreation(specificPlace: Bool) {
-        let root: TripCreationRoute = specificPlace ? .places : .question(.interests)
-        if creation?.root != root {
-            creation = TripCreationAssembly.makePresenter(planning: presenter, mode: mode, specificPlace: specificPlace)
-        }
+        guard !presenter.isBusy else { return }
+        presenter.startNewTrip()
+        creation = TripCreationAssembly.makePresenter(planning: presenter, mode: mode, specificPlace: specificPlace)
         showsCreation = true
     }
     private func resumeCreation(_ job: PlanningJob) {
@@ -170,6 +186,7 @@ struct TripHomeRootView: View {
 
     private func restoreWhenActive() async {
         guard scenePhase == .active else { return }
+        if location.permissionDenied, presenter.origin == nil { location.request() }
         await accountPresenter?.restore()
         await presenter.load(waitForFirstItinerary: false)
     }

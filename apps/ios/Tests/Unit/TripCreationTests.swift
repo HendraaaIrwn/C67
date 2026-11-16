@@ -7,6 +7,21 @@ import C67Domain
 
 @Suite("Connected Hi-Fi trip creation")
 @MainActor struct TripCreationTests {
+    @Test func departureFallbackUsesOnlyTheMatchingForecastHour() throws {
+        let data = Data(#"{"hourly_units":{"time":"unixtime","temperature_2m":"°C"},"hourly":{"time":[3600,7200],"temperature_2m":[24,29],"weather_code":[0,61]}}"#.utf8)
+        let reading = try DepartureWeatherLoader.decodeOpenMeteo(data, departure: Date(timeIntervalSince1970: 7500))
+        #expect(reading.temperature.value == 29)
+        #expect(reading.condition == "Rain")
+        #expect(reading.source == "Open-Meteo")
+        #expect(throws: (any Error).self) {
+            try DepartureWeatherLoader.decodeOpenMeteo(data, departure: Date(timeIntervalSince1970: 11000))
+        }
+        let badUnits = Data(#"{"hourly_units":{"time":"unixtime","temperature_2m":"°F"},"hourly":{"time":[3600],"temperature_2m":[72],"weather_code":[0]}}"#.utf8)
+        #expect(throws: (any Error).self) {
+            try DepartureWeatherLoader.decodeOpenMeteo(badUnits, departure: Date(timeIntervalSince1970: 3600))
+        }
+    }
+
     private func make(specific: Bool = true, repository: any PlanningRepository = MockPlanningRepository(),
                       searcher: (any TripPlaceSearching)? = nil) throws -> TripCreationPresenter {
         let planning = PlanningPresenter(interactor: .init(repository: repository), initialInput: try MockPlanningRepository.sampleInput())
@@ -95,6 +110,48 @@ import C67Domain
         #expect(model.mainSpot == .automatic)
         #expect(model.stay == nil)
         #expect(model.planning.places.count == model.selected.count)
+    }
+
+    @Test func newTripClearsPreviousSelectionAndPreservesStartingPoint() throws {
+        let previous = try make()
+        let planning = previous.planning
+        let origin = planning.origin
+        let originLabel = planning.originLabel
+        let oldIDs = Set(previous.selected.map(\.id))
+        previous.mainSpot = .place(try #require(previous.selected.first).id)
+        previous.stay = .ninetyMinutes
+        planning.preferences = "Previous preferences"
+        planning.enginePreferences?.mainSpotID = previous.mainSpot.placeID
+
+        planning.startNewTrip()
+        let next = TripCreationAssembly.makePresenter(planning: planning, mode: "Mock • memory only", specificPlace: false)
+        #expect(next.selected.isEmpty)
+        #expect(planning.places.isEmpty)
+        #expect(planning.preferences.isEmpty)
+        #expect(planning.enginePreferences?.mainSpotID == nil)
+        #expect(planning.origin == origin)
+        #expect(planning.originLabel == originLabel)
+        #expect(next.mainSpot == .automatic)
+        #expect(next.stay == nil)
+
+        let place = RecommendedPlace(place: .init(id: UUID(), name: "New place",
+                                                  location: .init(latitude: -6.2, longitude: 106.8), visitSeconds: 1800))
+        next.toggle(place)
+        next.finishChoosingPlaces()
+        #expect(next.route == .mainSpot)
+        #expect(next.selected.map(\.id) == [place.id])
+        #expect(planning.draftInput?.places.map(\.id) == [place.id])
+        #expect(oldIDs.isDisjoint(with: Set(planning.places.map(\.id))))
+    }
+
+    @Test func loadingDuringNewTripDoesNotRestoreThePreviousPendingJob() async throws {
+        let model = try make()
+        await model.planning.request()
+        #expect(model.planning.job != nil)
+        model.planning.startNewTrip()
+        await model.planning.load()
+        #expect(model.planning.job == nil)
+        #expect(model.planning.places.isEmpty)
     }
 
     @Test func mainSpotDurationDoesNotPinFirstStop() async throws {
