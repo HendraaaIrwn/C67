@@ -9,7 +9,9 @@ struct AppDependencies {
     let mode: String
     let authentication: (any TravellerAuthentication)?
 
-    @MainActor static func make() throws -> AppDependencies {
+    @MainActor static func make(removeAccountData: @escaping @Sendable (UUID) async throws -> Void) throws -> AppDependencies {
+        let pocketURL = (Bundle.main.object(forInfoDictionaryKey: "POCKET_SERVER_URL") as? String).flatMap(URL.init(string:))
+        let deletion = AccountDeletionConfiguration(baseURL: pocketURL, removeLocalData: removeAccountData)
         #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--pocket-auth-fixture") {
                 let url = URL(string: "https://fixture.invalid")!
@@ -32,8 +34,20 @@ struct AppDependencies {
                              mode: "Pocket • live runtime acceptance", authentication: nil)
             }
             if ProcessInfo.processInfo.arguments.contains("--pocket-integration-fixture") {
-                return .init(repository: try MockRundownRepository(), planningRepository: try PocketIntegrationFixture.repository(),
-                             planningInitialInput: PocketIntegrationFixture.input(), mode: "Pocket • synthetic integration fixture", authentication: nil)
+                let input = PocketIntegrationFixture.input()
+                let lateJobTime: Date?
+                if ProcessInfo.processInfo.arguments.contains("--pocket-late-day-fixture") {
+                    var calendar = Calendar(identifier: .gregorian)
+                    calendar.timeZone = TimeZone(identifier: input.timeZone) ?? .current
+                    lateJobTime = calendar.startOfDay(for: .now).addingTimeInterval(23 * 3600 + 30 * 60)
+                } else {
+                    lateJobTime = nil
+                }
+                let timesOut = ProcessInfo.processInfo.arguments.contains("--pocket-itinerary-timeout-fixture")
+                let repository = try PocketIntegrationFixture.repository(jobClock: { lateJobTime ?? .now },
+                                                                         firstOrderFailure: timesOut ? .timedOut : nil)
+                return .init(repository: try MockRundownRepository(), planningRepository: repository,
+                             planningInitialInput: input, mode: "Pocket • synthetic integration fixture", authentication: nil)
             }
         #endif
         let mode = Bundle.main.object(forInfoDictionaryKey: "C67_DATA_MODE") as? String ?? "mock"
@@ -46,7 +60,8 @@ struct AppDependencies {
             }
             let auth = try SupabaseAuthentication(baseURL: url, clientKey: key,
                                                   store: KeychainSessionStore(namespace: (Bundle.main.bundleIdentifier ?? "io.pibeebee.c67.starter") + ".pocket-user", baseURL: url),
-                                                  flowStore: KeychainSessionStore(namespace: (Bundle.main.bundleIdentifier ?? "io.pibeebee.c67.starter") + ".pocket-user-flow", baseURL: url))
+                                                  flowStore: KeychainSessionStore(namespace: (Bundle.main.bundleIdentifier ?? "io.pibeebee.c67.starter") + ".pocket-user-flow", baseURL: url),
+                                                  accountDeletion: deletion)
             return .init(repository: try MockRundownRepository(), planningRepository: MockPlanningRepository(),
                          planningInitialInput: nil, mode: "Pocket • authenticated", authentication: auth)
         case "pocket":
@@ -69,7 +84,8 @@ struct AppDependencies {
             }
             let authentication = try SupabaseAuthentication(baseURL: url, clientKey: key,
                                                             store: KeychainSessionStore(namespace: Bundle.main.bundleIdentifier ?? "io.pibeebee.c67.starter", baseURL: url),
-                                                            flowStore: KeychainSessionStore(namespace: (Bundle.main.bundleIdentifier ?? "io.pibeebee.c67.starter") + ".email-flow", baseURL: url))
+                                                            flowStore: KeychainSessionStore(namespace: (Bundle.main.bundleIdentifier ?? "io.pibeebee.c67.starter") + ".email-flow", baseURL: url),
+                                                            accountDeletion: deletion)
             let planning: any PlanningRepository
             if let raw = Bundle.main.object(forInfoDictionaryKey: "PLANNING_API_URL") as? String,
                let endpoint = URL(string: raw), endpoint.host != nil {

@@ -13,6 +13,9 @@ import C67Domain
         #expect(reading.temperature.value == 29)
         #expect(reading.condition == "Rain")
         #expect(reading.source == "Open-Meteo")
+        #expect(throws: DepartureWeatherLoader.ForecastFailure.noForecastForDeparture) {
+            try DepartureWeatherLoader.decodeOpenMeteo(data, departure: Date(timeIntervalSince1970: 12_000))
+        }
         #expect(throws: (any Error).self) {
             try DepartureWeatherLoader.decodeOpenMeteo(data, departure: Date(timeIntervalSince1970: 11000))
         }
@@ -154,6 +157,232 @@ import C67Domain
         #expect(model.planning.places.isEmpty)
     }
 
+    @Test func newCreationRecoversAnInterruptedPendingItinerary() async throws {
+        let repository = TripFlowRepositoryStub(supportsOnDevicePlanning: true)
+        let model = try make(repository: repository)
+        let input = try #require(model.planning.draftInput)
+        let command = PlanningRequest(requestID: UUID(), purpose: .firstItinerary, input: input)
+        var pending = PlanningJob(id: UUID(), status: .running, purpose: .firstItinerary, input: input,
+                                  tripID: nil, baseRevision: nil, result: nil,
+                                  errorCode: "ORDER_CONNECTION_INTERRUPTED", createdAt: .now)
+        pending.command = command
+        await repository.setPendingJob(pending)
+        model.planning.startNewTrip()
+        let restored = await model.planning.recoverPendingCreation()
+        #expect(restored?.id == pending.id)
+        #expect(model.planning.firstItineraryJob?.id == pending.id)
+        #expect(model.planning.draftInput == input)
+        model.planning.startNewTrip()
+        #expect(model.planning.firstItineraryJob?.id == pending.id)
+    }
+
+    @Test func failedTripRefreshPreservesPreviouslyLoadedTrips() async throws {
+        let repository = TripFlowRepositoryStub()
+        let model = try make(repository: repository)
+        await model.planning.request()
+        await model.planning.apply()
+        let before = model.planning.trips
+        #expect(!before.isEmpty)
+        await repository.setTripsError(.unavailable)
+        await model.planning.load()
+        #expect(model.planning.trips == before)
+        #expect(model.planning.tripListError == PlanningError.unavailable.localizedDescription)
+        await repository.setTripsError(nil)
+        await model.planning.load()
+        #expect(model.planning.tripListError == nil)
+        #expect(model.planning.trips == before)
+    }
+
+    @Test func failedAutomaticArrivalWaitsForManualRetryAndKeepsIdentity() async throws {
+        let repository = TripFlowRepositoryStub()
+        let model = try make(repository: repository)
+        await model.planning.request()
+        await model.planning.apply()
+        let planned = try #require(model.planning.trips.first)
+        await model.planning.event(.start, trip: planned)
+        let active = try #require(model.planning.trips.first)
+        await repository.setEventError(.unavailable)
+        #expect(model.planning.claimAutomaticArrival(for: active))
+        await model.planning.event(.arrive, trip: active)
+        #expect(!model.planning.claimAutomaticArrival(for: active))
+        #expect(!model.planning.claimAutomaticArrival(for: active))
+        await model.planning.event(.arrive, trip: active)
+        let arrivals = await repository.recordedEvents.filter { $0.kind == .arrive }
+        #expect(arrivals.count == 2)
+        #expect(arrivals[0].requestID == arrivals[1].requestID)
+    }
+
+    @Test func reviewRetryRepeatsRouteWithoutRequestingOrApplyingAPlan() async throws {
+        let repo = TripFlowRepositoryStub()
+        let planning = try make(repository: repo).planning
+        await planning.request()
+        let original = try #require(planning.job)
+        await repo.setRouteError(.unavailable)
+        await planning.updateExperienceRoute()
+        #expect(planning.reviewIssue?.operation == .changeRoute(order: nil, departure: nil))
+        #expect(planning.job == original)
+        await repo.setTripsError(.unavailable)
+        await planning.load(resumesJobs: false)
+        #expect(planning.reviewIssue?.operation == .changeRoute(order: nil, departure: nil))
+        #expect(planning.issues[.tripList]?.operation == .loadTrips)
+        await repo.setRouteError(nil)
+        await planning.retryReviewIssue()
+        #expect(await repo.routeJobIDs == [original.id, original.id])
+        #expect(await repo.requests.count == 1)
+        #expect(await repo.applyCalls == 0)
+        #expect(planning.reviewIssue == nil)
+        #expect(planning.tripListError != nil)
+    }
+
+    @Test func rejectedStopOrderKeepsThePreviousItineraryAndExplainsTheConflict() async throws {
+        let repo = TripFlowRepositoryStub()
+        let planning = try make(repository: repo).planning
+        await planning.request()
+        let original = try #require(planning.job)
+        let stops = try #require(original.result?.proposal?.stops)
+        let reversed = stops.reversed().map(\.id)
+        #expect(reversed != stops.map(\.id))
+
+        await repo.setRouteError(.failed("V41_ACCESS_CONFLICT"))
+        await planning.updateExperienceRoute(orderedIDs: reversed)
+
+        #expect(planning.job == original)
+        #expect(planning.reviewIssue?.operation == .changeRoute(order: reversed, departure: nil))
+        #expect(planning.reviewIssue?.message.contains("opening hours") == true)
+        #expect(await repo.routeJobIDs == [original.id])
+        #expect(await repo.requests.count == 1)
+        #expect(await repo.applyCalls == 0)
+    }
+
+    @Test func timedReviewRejectsAnOrderThatFinishesAfterTheDeadline() async throws {
+        let repo = TripFlowRepositoryStub()
+        let planning = try make(repository: repo).planning
+        let origin = try #require(planning.origin)
+        planning.places = [
+            PlanningPlace(id: UUID(), name: "Nearby", location: .init(latitude: origin.latitude + 0.001, longitude: origin.longitude), visitSeconds: 1800),
+            PlanningPlace(id: UUID(), name: "Farther away", location: .init(latitude: origin.latitude + 0.008, longitude: origin.longitude), visitSeconds: 1800),
+        ]
+        await planning.request()
+        let finish = try #require(planning.job?.result?.proposal?.finishesAt)
+        planning.finishBy = finish.addingTimeInterval(1)
+        planning.draftChanged()
+        await planning.request()
+        let previous = try #require(planning.job)
+        try #require(previous.result?.proposal?.feasible == true)
+        let reversed = Array(planning.places.reversed())
+
+        await planning.updateTimedReviewOrder(reversed)
+
+        #expect(planning.job == previous)
+        #expect(planning.draftInput == previous.input)
+        #expect(planning.reviewIssue?.operation == .changeRoute(order: reversed.map(\.id), departure: nil))
+        #expect(planning.reviewIssue?.recovery == nil)
+    }
+
+    @Test func statusRecoveryReadsTheSameJobWithoutASecondPlanningRequest() async throws {
+        let repo = TripFlowRepositoryStub()
+        let planning = try make(repository: repo).planning
+        await repo.setInterruptsStatusRead(true)
+        await planning.request()
+        let id = try #require(planning.job?.id)
+        #expect(planning.creationIssue?.certainty == .unconfirmed)
+        #expect(planning.creationIssue?.recovery == .checkStatus)
+        await repo.setInterruptsStatusRead(false)
+        await planning.checkStatus()
+        #expect(await repo.statusReadIDs == [id, id])
+        #expect(await repo.requests.count == 1)
+        #expect(planning.job?.status == .succeeded)
+        #expect(planning.creationIssue == nil)
+    }
+
+    @Test func mainSpotLoadFailureRetriesUnconfirmedRequestWithTheSameInput() async throws {
+        let repo = TripFlowRepositoryStub(supportsOnDevicePlanning: true)
+        let model = try make(repository: repo)
+        model.finishChoosingPlaces()
+        let selected = model.selected.map(\.id)
+        model.selectMainSpot(.place(try #require(selected.first)))
+
+        await repo.configure(failing: true)
+        await model.finishMainSpot()
+        #expect(model.route == .mainSpot)
+        #expect(model.connectionNotice == .loadFailed)
+        #expect(!model.checksExistingRequest)
+        #expect(model.selected.map(\.id) == selected)
+
+        await model.plan()
+        let requests = await repo.requests
+        #expect(requests.count == 2)
+        #expect(requests.first == requests.last)
+        #expect(requests.first?.input.enginePreferences?.mainSpotID == selected.first)
+    }
+
+    @Test func requestRecoveryPreservesUnconfirmedIdentityUntilFinalFailure() async throws {
+        let repo = TripFlowRepositoryStub()
+        let planning = try make(repository: repo).planning
+        await repo.configure(failing: true)
+        await planning.request()
+        planning.draftChanged()
+        await planning.request()
+        let requests = await repo.requests
+        #expect(requests.count == 2)
+        #expect(requests.first?.requestID == requests.last?.requestID)
+        planning.title = "Changed trip"
+        planning.draftChanged()
+        await planning.request()
+        #expect(await repo.requests.last?.requestID != requests.last?.requestID)
+
+        await repo.configure(failing: false)
+        await planning.request()
+        await repo.setApplyError(.unavailable)
+        await planning.apply()
+        await repo.setApplyError(.invalidResponse)
+        await planning.retryReviewIssue()
+        #expect(planning.reviewIssue?.certainty == .unconfirmed)
+        await repo.setApplyError(.rateLimited)
+        await planning.retryReviewIssue()
+        #expect(planning.reviewIssue?.recovery == .wait)
+        await repo.setApplyError(nil)
+        await planning.retryReviewIssue()
+        let applyIDs = await repo.appliedRequestIDs
+        #expect(applyIDs.count == 4)
+        #expect(Set(applyIDs.prefix(3)).count == 1)
+        #expect(applyIDs.first != applyIDs.last)
+        #expect(planning.trips.count == 1)
+    }
+
+    @Test func deleteFailureIsScopedToTheSavedTripAndPreservesItsSnapshot() async throws {
+        let repo = TripFlowRepositoryStub()
+        let planning = try make(repository: repo).planning
+        await planning.request()
+        await planning.apply()
+        let trip = try #require(planning.trips.first)
+        await repo.setDeleteError(.unavailable)
+        #expect(await planning.deleteTrip(trip) == false)
+        #expect(planning.trips == [trip])
+        #expect(planning.issues[.savedTrip(trip.id)]?.operation == .delete)
+        #expect(planning.tripListError == nil)
+        #expect(planning.reviewIssue == nil)
+        await repo.setDeleteError(nil)
+        #expect(await planning.deleteTrip(trip))
+        #expect(planning.trips.isEmpty)
+        #expect(planning.issues[.savedTrip(trip.id)] == nil)
+    }
+
+    @Test func openingHoursRetryPerformsOnlyTheRequestedPlaceLookup() async throws {
+        let repo = TripFlowRepositoryStub()
+        let planning = try make(repository: repo).planning
+        await planning.request()
+        let original = try #require(planning.job)
+        await repo.setHours(.init(status: "temporary_error"))
+        #expect(await planning.openingHours(placeID: "I1A").status == "temporary_error")
+        await repo.setHours(.init(status: "unavailable"))
+        #expect(await planning.openingHours(placeID: "I1A").status == "unavailable")
+        #expect(await repo.lookedUpHoursIDs == ["I1A", "I1A"])
+        #expect(await repo.requests.count == 1)
+        #expect(await repo.applyCalls == 0)
+        #expect(planning.job == original)
+    }
+
     @Test func mainSpotDurationDoesNotPinFirstStop() async throws {
         let model = try make()
         let chosen = try #require(model.selected.last)
@@ -205,6 +434,173 @@ import C67Domain
         #expect(planning.openTripID == trip.id)
         #expect(planning.job == nil)
         #expect(await repository.personalTrips().count == 1)
+    }
+
+    @Test func automaticV4FallbackKeepsTomorrowInReviewAndAfterSavingAndReopening() async throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-11-30T23:30:00+07:00"))
+        let tomorrow = try #require(ISO8601DateFormatter().date(from: "2026-12-01T09:00:00+07:00"))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let storage = directory.appendingPathComponent("trips.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = try PocketIntegrationFixture.repository(storageURL: storage, jobClock: { now })
+        let model = try v4DateFlow(repository: repository, now: now, automatic: true)
+        let selectedIDs = Set(model.selected.map(\.id))
+
+        model.finishChoosingPlaces()
+        await model.finishMainSpot()
+
+        #expect(model.route == .review)
+        let proposal = try #require(model.reviewProposal)
+        let job = try #require(model.planning.firstItineraryJob)
+        #expect(proposal.estimatedExperienceDeparture == tomorrow)
+        #expect(proposal.rescheduledFromDate != nil)
+        #expect(job.originalInput?.startsAt == now)
+        #expect(job.input == proposal.input)
+        #expect(model.planning.draftInput == proposal.input)
+        #expect(Set(proposal.stops.map(\.id)) == selectedIDs)
+
+        await model.planning.saveReviewedProposal(named: proposal.input.title)
+        #expect(model.planning.error == nil)
+        let openedTripID = try #require(model.planning.openTripID)
+        let reopened = try PocketIntegrationFixture.repository(storageURL: storage, jobClock: { now })
+        let reopenedPlanning = PlanningPresenter(interactor: .init(repository: reopened))
+        await reopenedPlanning.load()
+        let saved = try #require(reopenedPlanning.trips.first(where: { $0.id == openedTripID }))
+        #expect(saved.input.startsAt == tomorrow)
+        #expect(saved.plan.input == saved.input)
+        #expect(saved.plan.estimatedExperienceDeparture == tomorrow)
+        #expect(saved.plan.rescheduledFromDate == proposal.rescheduledFromDate)
+        #expect(Set(saved.plan.stops.map(\.id)) == selectedIDs)
+    }
+
+    @Test func explicitTodayStaysSelectedUntilTheTryTomorrowActionCreatesANewRequest() async throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-11-30T23:30:00+07:00"))
+        let tomorrow = try #require(ISO8601DateFormatter().date(from: "2026-12-01T09:00:00+07:00"))
+        let repository = try PocketIntegrationFixture.repository(jobClock: { now })
+        let model = try v4DateFlow(repository: repository, now: now, automatic: false)
+
+        model.finishChoosingPlaces()
+        await model.finishMainSpot()
+
+        let todayJob = try #require(model.planning.firstItineraryJob)
+        #expect(model.route == .mainSpot)
+        #expect(model.canTryTomorrow)
+        #expect(todayJob.status == .failed)
+        #expect(todayJob.errorCode == "V4_TODAY_TOO_SHORT")
+        #expect(todayJob.input.startsAt == now)
+        #expect(model.planning.startsAt == now)
+        #expect(model.reviewProposal == nil)
+
+        await model.tryTomorrow()
+
+        #expect(model.route == .review)
+        #expect(!model.canTryTomorrow)
+        let tomorrowJob = try #require(model.planning.firstItineraryJob)
+        let proposal = try #require(model.reviewProposal)
+        #expect(tomorrowJob.id != todayJob.id)
+        #expect(tomorrowJob.command?.requestID != todayJob.command?.requestID)
+        #expect(tomorrowJob.command?.input.startsAt == tomorrow)
+        #expect(tomorrowJob.command?.input.enginePreferences?.usesAutomaticTripDate == false)
+        #expect(proposal.estimatedExperienceDeparture == tomorrow)
+        #expect(proposal.rescheduledFromDate == nil)
+        #expect(Set(proposal.stops.map(\.id)) == Set(model.selected.map(\.id)))
+    }
+
+    @Test func v41UsesTheTimingAnswerAndSavesTomorrowWithoutLuna() async throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-11-30T12:00:00+07:00"))
+        let tomorrow = try #require(ISO8601DateFormatter().date(from: "2026-12-01T09:00:00+07:00"))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storage = directory.appendingPathComponent("trip.json")
+        let repository = try PocketIntegrationFixture.repository(storageURL: storage, jobClock: { now })
+        let model = try v4DateFlow(repository: repository, now: now, automatic: true, method: .hybridV41)
+        model.answers.timing = .tomorrow
+        model.finishChoosingPlaces()
+        model.prepareScheduleOptions()
+        #expect(model.planning.startsAt == tomorrow)
+        await model.finishMainSpot()
+        let proposal = try #require(model.reviewProposal)
+        #expect(model.route == .review)
+        #expect(proposal.estimatedExperienceDeparture == tomorrow)
+        #expect(proposal.scheduleAssessment?.modelCalls == 0)
+        #expect(proposal.experiencePlan == nil)
+        #expect(model.planning.draftInput == proposal.input)
+        await model.planning.saveReviewedProposal(named: "Tomorrow without Luna")
+        #expect(model.planning.error == nil)
+        let reopened = try PocketIntegrationFixture.repository(storageURL: storage)
+        let saved = try #require(await reopened.personalTrips().first)
+        #expect(saved.title == "Tomorrow without Luna")
+        #expect(saved.input.startsAt == tomorrow)
+        #expect(saved.plan.usesExperienceFlow)
+    }
+
+    @Test func v41ScheduleEditTakesPrecedenceOverTheEarlierTimingAnswer() async throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-11-30T12:00:00+07:00"))
+        let selectedDay = try #require(ISO8601DateFormatter().date(from: "2026-12-03T09:00:00+07:00"))
+        let repository = try PocketIntegrationFixture.repository(jobClock: { now })
+        let model = try v4DateFlow(repository: repository, now: now, automatic: true, method: .hybridV41)
+        model.answers.timing = .tomorrow
+        model.finishChoosingPlaces()
+        model.prepareScheduleOptions()
+        model.changeTripDate(selectedDay)
+        await model.finishMainSpot()
+        let proposal = try #require(model.reviewProposal)
+        #expect(proposal.input.startsAt == selectedDay)
+        #expect(proposal.scheduleAssessment?.modelCalls == 0)
+    }
+
+    @Test func v41RecalculatesAChangedDurationAfterManualReordering() async throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-11-30T12:00:00+07:00"))
+        let repository = try PocketIntegrationFixture.repository(jobClock: { now })
+        let model = try v4DateFlow(repository: repository, now: now, automatic: true, method: .hybridV41)
+        model.answers.timing = .tomorrow
+        model.finishChoosingPlaces()
+        await model.finishMainSpot()
+        let initial = try #require(model.reviewProposal)
+        let ids = Array(initial.stops.map(\.id).reversed())
+        await model.planning.updateExperienceRoute(orderedIDs: ids)
+        #expect(model.planning.error == nil)
+        model.planning.places[0].visitSeconds = 3600
+        model.planning.draftChanged()
+        await model.planning.request()
+        #expect(model.planning.error == nil)
+        let updated = try #require(model.planning.job?.result?.proposal)
+        #expect(updated.stops.map(\.id) == ids)
+        #expect(updated.stops[0].visitSeconds == 3600)
+        #expect(updated.scheduleAssessment?.modelCalls == 0)
+        #expect(updated.input == model.planning.draftInput)
+    }
+
+    @Test func v41DateSourceEditsKeepTheSemanticPreferencePayloadStable() throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-11-30T12:00:00+07:00"))
+        let tomorrow = try #require(ISO8601DateFormatter().date(from: "2026-12-01T09:00:00+07:00"))
+        let repository = try PocketIntegrationFixture.repository(jobClock: { now })
+        let model = try v4DateFlow(repository: repository, now: now, automatic: true, method: .hybridV41)
+        model.answers.timing = .tomorrow
+        model.answers.dayPart = .evening
+        model.finishChoosingPlaces()
+        let before = model.preferenceText
+        model.prepareScheduleOptions()
+        model.changeTripDate(tomorrow)
+        #expect(!before.isEmpty)
+        #expect(model.preferenceText == before)
+        #expect(model.planning.startsAt == tomorrow)
+    }
+
+    private func v4DateFlow(repository: PocketPlanningRepository, now: Date, automatic: Bool, method: PlanningOrderingMethod = .hybridV4) throws -> TripCreationPresenter {
+        var input = PocketIntegrationFixture.input()
+        input.startsAt = now
+        input.finishBy = now.addingTimeInterval(25 * 60)
+        input.enginePreferences?.usesAutomaticTripDate = automatic
+        input.places = Array(try PocketIntegrationFixture.searchablePlaces().prefix(2))
+        for index in input.places.indices {
+            input.places[index].visitSeconds = 45 * 60
+            input.places[index].durationOverridden = true
+        }
+        let planning = PlanningPresenter(interactor: .init(repository: repository), initialInput: input)
+        return TripCreationPresenter(planning: planning, mode: "Pocket • synthetic integration fixture", specificPlace: true,
+                                     interactor: .init(searcher: SyntheticTripPlaceSearch()),
+                                     orderingMethod: { method }, clock: { now })
     }
 
     private func orderedPlanning(_ repository: TripFlowRepositoryStub) async throws -> PlanningPresenter {

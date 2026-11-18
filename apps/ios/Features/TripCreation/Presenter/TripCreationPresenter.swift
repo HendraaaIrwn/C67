@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Observation
 import C67Domain
 
@@ -16,7 +17,12 @@ import C67Domain
     var query = ""
     private(set) var results: [RecommendedPlace] = []
     private(set) var isSearching = false
-    private(set) var searchError: String?
+    private var submittedQuery: String?
+    private var searchFailure: String?
+    var searchError: String? { submittedQuery == normalizedQuery ? searchFailure : nil }
+    var hasSearchedCurrentQuery: Bool { submittedQuery == normalizedQuery && !normalizedQuery.isEmpty }
+    var showsPreviousResults: Bool { !results.isEmpty && !normalizedQuery.isEmpty && (!hasSearchedCurrentQuery || isSearching || searchError != nil) }
+    private var normalizedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private(set) var isProcessing = false
     private(set) var isShowingCompletion = false
     private(set) var isSuggesting = false
@@ -31,26 +37,107 @@ import C67Domain
     private var recommendationTask: Task<RecommendationsBatch, any Error>?
     private let interactor: TripCreationInteractor
     private let basePreferences: String
+    private let orderingMethod: () -> PlanningOrderingMethod
+    private let clock: () -> Date
     private var searchGeneration = 0
     private var restoredJobID: UUID?
+    private var reviewTiming: (started: ContinuousClock.Instant, requestID: UUID, method: PlanningOrderingMethod)?
+    private static let timingLogger = Logger(subsystem: "io.pibeebee.c67", category: "PlanningTiming")
 
-    init(planning: PlanningPresenter, mode: String, specificPlace: Bool, interactor: TripCreationInteractor) {
+    init(planning: PlanningPresenter, mode: String, specificPlace: Bool, interactor: TripCreationInteractor,
+         orderingMethod: @escaping () -> PlanningOrderingMethod = {
+             PlanningOrderingMethod(rawValue: UserDefaults.standard.string(forKey: "io.pibeebee.c67.orderingMethod") ?? "") ?? .luna
+         }, clock: @escaping () -> Date = { .now }) {
         self.planning = planning
         self.mode = mode
         root = specificPlace ? .places : .question(.interests)
         self.interactor = interactor
+        self.orderingMethod = orderingMethod
+        self.clock = clock
         selected = planning.places.map { .init(place: $0) }
         basePreferences = planning.preferences
+        answers.timing = planning.enginePreferences?.tripTiming.flatMap { TripTiming(rawValue: $0.rawValue) }
+        answers.dayPart = planning.enginePreferences?.preferredDayPart.flatMap { DayPart(rawValue: $0.rawValue) }
     }
 
     var route: TripCreationRoute { path.last ?? root }
+    var usesV41: Bool { orderingMethod().usesFlexibleSchedule }
+    var hasSixPlaceLimit: Bool { !planning.supportsOnDevicePlanning || orderingMethod().isSchedule }
+    var scheduleAssessment: PlanningScheduleAssessment? { planning.firstItineraryJob?.scheduleAssessment }
+    var scheduleSummary: String {
+        guard let input = planning.draftInput else { return "Choose a trip date" }
+        let dates = (try? PlanningDayWindow.v41Inputs(input, at: clock())) ?? [input]
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(identifier: input.timeZone)
+        formatter.dateStyle = .medium
+        if dates.count > 1, let first = dates.first, let last = dates.last {
+            return "Compare \(formatter.string(from: first.startsAt)) – \(formatter.string(from: last.startsAt))"
+        }
+        return formatter.string(from: dates.first?.startsAt ?? input.startsAt)
+    }
     var needsPocketSettings: Bool {
         guard let code = planning.firstItineraryJob?.errorCode else { return false }
         return ["POCKET_CONNECTION_REQUIRED", "POCKET_CONNECTION_REJECTED", "POCKET_ORDER_ENDPOINT_MISSING", "POCKET_ORDER_METHOD_UNSUPPORTED"].contains(code)
     }
-    var checksExistingRequest: Bool {
-        guard let job = planning.firstItineraryJob else { return false }
-        return job.status == .running || job.status == .queued
+    var checksExistingRequest: Bool { planning.hasPendingCreationJob }
+    enum ConnectionNotice { case loadFailed, takingLonger }
+    var connectionNotice: ConnectionNotice? {
+        guard let issue = planning.creationIssue, case .plan = issue.operation else { return nil }
+        switch issue.cause {
+        case .pending: return .takingLonger
+        case .planning(.timedOut): return checksExistingRequest ? .takingLonger : .loadFailed
+        case .planning(.unavailable), .planning(.invalidResponse), .planning(.failed("ORDER_GENERATION_FAILED")),
+             .planning(.failed("ORDER_RESPONSE_INVALID")): return .loadFailed
+        default: return nil
+        }
+    }
+
+    func selectMainSpot(_ value: MainSpotChoice) {
+        guard value != mainSpot else { return }
+        mainSpot = value
+        stay = nil
+        error = nil
+        planning.enginePreferences?.mainSpotID = value.placeID
+        planning.draftChanged()
+    }
+    var canTryTomorrow: Bool {
+        canTryTomorrow(at: clock())
+    }
+
+    private func canTryTomorrow(at now: Date) -> Bool {
+        guard let job = planning.firstItineraryJob, job.errorCode == "V4_TODAY_TOO_SHORT" else { return false }
+        return PlanningDayWindow.isSameDay(job.createdAt, now, timeZone: job.input.timeZone)
+    }
+
+    func tryTomorrow() async {
+        let now = clock()
+        guard canTryTomorrow(at: now), !isProcessing, !planning.isBusy,
+              let window = PlanningDayWindow.tomorrow(after: now, timeZone: planning.timeZone) else { return }
+        planning.startsAt = window.start
+        planning.finishBy = window.end
+        planning.enginePreferences?.usesAutomaticTripDate = false
+        planning.enginePreferences?.scheduleSource = .manual
+        planning.draftChanged()
+        await plan()
+    }
+
+    func prepareScheduleOptions() {
+        if usesV41 {
+            syncEnginePreferences()
+            if let input = planning.draftInput, let resolved = try? PlanningDayWindow.v41Inputs(input, at: clock()).first {
+                planning.startsAt = resolved.startsAt
+                planning.finishBy = resolved.finishBy
+            }
+            return
+        }
+        guard planning.enginePreferences?.usesAutomaticTripDate == true,
+              orderingMethod() == .hybridV4 else { return }
+        let now = planning.firstItineraryJob?.createdAt ?? clock()
+        let today = PlanningDayWindow.remainingToday(at: now, timeZone: planning.timeZone)
+        guard let window = today.flatMap({ $0.duration > 0 ? $0 : nil }) ??
+            PlanningDayWindow.tomorrow(after: now, timeZone: planning.timeZone) else { return }
+        planning.startsAt = window.start
+        planning.finishBy = window.end
     }
     var canPlan: Bool {
         guard let input = planning.draftInput else { return false }
@@ -58,8 +145,9 @@ import C67Domain
     }
 
     var planningHandoffMessage: String? {
-        guard !planning.supportsOnDevicePlanning, selected.count > 6 else { return nil }
-        return "All \(selected.count) places are kept for this session. Itinerary creation supports up to six places for now."
+        let method = orderingMethod()
+        guard selected.count > 6, !planning.supportsOnDevicePlanning || method.isSchedule else { return nil }
+        return "All \(selected.count) places are kept for this session. This itinerary method supports up to six places."
     }
 
     func advance(_ step: PreferenceStep, skip: Bool = false) {
@@ -96,21 +184,23 @@ import C67Domain
     func search() async {
         searchGeneration += 1
         let ticket = searchGeneration
-        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        searchError = nil
+        let text = normalizedQuery
+        let session = planning.sessionGeneration
+        submittedQuery = text
+        searchFailure = nil
         guard !text.isEmpty else { results = []; isSearching = false; return }
         isSearching = true
         defer { if ticket == searchGeneration { isSearching = false } }
         do {
             let found = try await interactor.search(text, near: planning.origin)
-            guard ticket == searchGeneration, !Task.isCancelled, query.trimmingCharacters(in: .whitespacesAndNewlines) == text else { return }
+            guard ticket == searchGeneration, session == planning.sessionGeneration, !Task.isCancelled, normalizedQuery == text else { return }
             results = found.map { item in
                 selected.first(where: { $0.place.name == item.place.name && $0.place.location == item.place.location }) ?? item
             }
         } catch is CancellationError { }
         catch {
-            guard ticket == searchGeneration, !Task.isCancelled else { return }
-            searchError = "Place search is unavailable. Try another query."
+            guard ticket == searchGeneration, session == planning.sessionGeneration, !Task.isCancelled, normalizedQuery == text else { return }
+            searchFailure = "Check your connection or try a different query."
         }
     }
 
@@ -182,6 +272,7 @@ import C67Domain
         guard !selected.isEmpty else { return }
         error = nil
         syncPlaces()
+        syncEnginePreferences()
         push(.mainSpot)
     }
 
@@ -225,11 +316,12 @@ import C67Domain
         guard canPlan else { error = PlanningError.invalidInput.localizedDescription; return }
         isProcessing = true; error = nil
         defer { isProcessing = false }
-        await planning.request()
+        if checksExistingRequest { await planning.checkStatus() }
+        else { await planning.request() }
         guard !Task.isCancelled, !planning.privateAccessBlocked,
               let job = planning.job, job.status == .succeeded, job.purpose == .plan,
-              job.input == planning.draftInput, job.result?.proposal != nil, planning.error == nil else {
-            error = planning.error ?? "Your itinerary could not be prepared. Try again."
+              job.input == planning.draftInput, job.result?.proposal != nil, planning.creationIssue == nil else {
+            error = planning.creationIssue?.message ?? "Your itinerary could not be prepared. Try again."
             return
         }
         guard await showCompletion() else { return }
@@ -240,6 +332,8 @@ import C67Domain
     func openFirstItinerary(_ job: PlanningJob) {
         restoredJobID = job.id
         let input = job.command?.input ?? job.input
+        answers.timing = input.enginePreferences?.tripTiming.flatMap { TripTiming(rawValue: $0.rawValue) }
+        answers.dayPart = input.enginePreferences?.preferredDayPart.flatMap { DayPart(rawValue: $0.rawValue) }
         if let id = input.enginePreferences?.mainSpotID { mainSpot = .place(id) }
         if let proposal = job.result?.proposal, job.status == .succeeded {
             reviewProposal = proposal
@@ -251,6 +345,8 @@ import C67Domain
     }
 
     private func planFirstItinerary() async {
+        let started = ContinuousClock.now
+        reviewTiming = nil
         guard planning.origin != nil else { error = "Choose a starting point to prepare your itinerary."; return }
         planning.mode = .automobile
         planning.preservesPlaceOrder = false
@@ -259,13 +355,17 @@ import C67Domain
         isProcessing = true; error = nil
         defer { isProcessing = false }
         let routeBeforeRequest = route
-        await planning.request(.firstItinerary)
+        if checksExistingRequest { await planning.checkStatus() }
+        else { await planning.request(.firstItinerary) }
         guard !Task.isCancelled, !planning.privateAccessBlocked, route == routeBeforeRequest else { return }
-        if planning.error == nil, let job = planning.job, job.purpose == .firstItinerary,
-           let proposal = job.result?.proposal {
+        if planning.creationIssue == nil, let job = planning.job, job.purpose == .firstItinerary,
+           job.status == .succeeded, let proposal = job.result?.proposal {
             guard await showCompletion(), route == routeBeforeRequest else { return }
             availabilityIDs = []
             reviewProposal = proposal
+            if proposal.effectiveOrderingMethod.usesFlexibleSchedule, let requestID = job.command?.requestID {
+                reviewTiming = (started, requestID, proposal.effectiveOrderingMethod)
+            }
             push(.review)
         } else {
             let result = planning.job?.result
@@ -273,8 +373,15 @@ import C67Domain
             if route == .availability { availabilityIDs.formUnion(incomplete) }
             else { availabilityIDs = incomplete }
             if !availabilityPlaces.isEmpty, route != .availability { push(.availability) }
-            error = planning.error ?? result?.warnings.prefix(3).joined(separator: "\n") ?? "Your itinerary could not be prepared. Try again."
+            error = planning.creationIssue?.message ?? result?.warnings.prefix(3).joined(separator: "\n") ?? "Your itinerary could not be prepared. Try again."
         }
+    }
+
+    func recordReviewAppearance() {
+        guard let timing = reviewTiming else { return }
+        reviewTiming = nil
+        let elapsed = String(describing: timing.started.duration(to: .now))
+        Self.timingLogger.info("itinerary_visible request_id=\(timing.requestID.uuidString.lowercased(), privacy: .public) method=\(timing.method.rawValue, privacy: .public) elapsed=\(elapsed, privacy: .public)")
     }
 
     private func showCompletion() async -> Bool {
@@ -298,7 +405,7 @@ import C67Domain
         if !refinements.isEmpty { lines.append("Detailed preferences: " + refinements.joined(separator: ", ")) }
         if let value = answers.popularity { lines.append("Place preference: " + String(localized: value.title)) }
         if let value = answers.pace { lines.append("Preferred pace: " + String(localized: value.title)) }
-        if let value = answers.timing { lines.append("Timing wish: " + String(localized: value.title)) }
+        if !usesV41, let value = answers.timing { lines.append("Timing wish: " + String(localized: value.title)) }
         if let value = answers.dayPart { lines.append("Preferred time of day: " + String(localized: value.title)) }
         if let value = answers.budget { lines.append("Budget wish: " + value.formatted(BudgetScale.currency)) }
         if let value = answers.transport { lines.append("Transport wish: " + String(localized: value.title) + ". Use the confirmed routing mode.") }
@@ -308,22 +415,101 @@ import C67Domain
         return lines.joined(separator: "\n")
     }
 
+    func setVisitDuration(_ id: UUID, minutes: Int?) {
+        guard let index = selected.firstIndex(where: { $0.id == id }) else { return }
+        if let minutes {
+            selected[index].place.visitSeconds = minutes * 60
+            selected[index].place.durationOverridden = true
+            if let minimum = selected[index].place.minimumAcceptedVisitSeconds, minimum > minutes * 60 {
+                selected[index].place.minimumAcceptedVisitSeconds = minutes * 60
+            }
+        } else { selected[index].place.durationOverridden = false }
+        syncPlaces()
+    }
+
     func confirmVisit(_ id: UUID, opens: Date, closes: Date, publicAccess: Bool) {
         guard let index = selected.firstIndex(where: { $0.id == id }) else { return }
+        let cutoff = selected[index].place.visitConfirmation?.lastEntryAt
         selected[index].place.visitConfirmation = .init(opensAt: opens, closesAt: closes, publicAccessConfirmed: publicAccess)
+        selected[index].place.visitConfirmation?.lastEntryAt = cutoff
         syncPlaces()
     }
     func clearVisitConfirmation(_ id: UUID) {
         guard let index = selected.firstIndex(where: { $0.id == id }), selected[index].place.visitConfirmation != nil else { return }
         selected[index].place.visitConfirmation = nil; syncPlaces()
     }
+    func setActivitySession(_ id: UUID, session: PlanningActivitySession?) {
+        guard let index = selected.firstIndex(where: { $0.id == id }) else { return }
+        selected[index].place.activitySession = session
+        syncPlaces()
+    }
+    func setEntryCutoff(_ id: UUID, date: Date?) {
+        guard let index = selected.firstIndex(where: { $0.id == id }) else { return }
+        selected[index].place.visitConfirmation?.lastEntryAt = date
+        syncPlaces()
+    }
+    func setMinimumDuration(_ id: UUID, minutes: Int?) {
+        guard let index = selected.firstIndex(where: { $0.id == id }) else { return }
+        selected[index].place.minimumAcceptedVisitSeconds = minutes.map { $0 * 60 }
+        syncPlaces()
+    }
+    func chooseTripTiming(_ timing: PlanningTripTiming?) {
+        answers.timing = timing.flatMap { TripTiming(rawValue: $0.rawValue) }
+        planning.enginePreferences?.scheduleSource = timing == nil ? .automatic : .timingAnswer
+        planning.enginePreferences?.timingAnchor = clock()
+        syncEnginePreferences()
+        prepareScheduleOptions()
+        planning.draftChanged()
+    }
+    func changeTripDate(_ date: Date) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: planning.timeZone) ?? .current
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: planning.startsAt), to: calendar.startOfDay(for: date)).day ?? 0
+        guard let start = calendar.date(byAdding: .day, value: days, to: planning.startsAt),
+              let finish = calendar.date(byAdding: .day, value: days, to: planning.finishBy) else { return }
+        planning.startsAt = start
+        planning.finishBy = finish
+        planning.enginePreferences?.usesAutomaticTripDate = false
+        planning.enginePreferences?.scheduleSource = .manual
+        planning.draftChanged()
+    }
+    func reviewVisitAvailability() {
+        let issues = (scheduleAssessment?.conflicts ?? []) + (scheduleAssessment?.regularConflicts ?? []) + (scheduleAssessment?.unresolved ?? [])
+        availabilityIDs = Set(issues.compactMap(\.placeID))
+        if availabilityIDs.isEmpty { availabilityIDs = Set(selected.map(\.id)) }
+        push(.availability)
+    }
+    func acceptDurationAlternative(_ alternative: PlanningDurationAlternative) async {
+        guard !isProcessing, !planning.isBusy else { return }
+        let input = planning.firstItineraryJob?.input
+        setVisitDuration(alternative.placeID, minutes: alternative.proposedSeconds / 60)
+        if let start = alternative.startsAt ?? input?.startsAt { planning.startsAt = start }
+        if let finish = alternative.finishBy ?? input?.finishBy { planning.finishBy = finish }
+        planning.enginePreferences?.usesAutomaticTripDate = false
+        planning.enginePreferences?.scheduleSource = .manual
+        planning.draftChanged()
+        await plan()
+    }
     private func syncEnginePreferences() {
         guard planning.supportsOnDevicePlanning else { return }
         var preferences = planning.enginePreferences ?? PlanningPreferences()
-        preferences.orderingMethod = PlanningOrderingMethod(rawValue: UserDefaults.standard.string(forKey: "io.pibeebee.c67.orderingMethod") ?? "") ?? .luna
+        let selectedMethod = orderingMethod()
+        preferences.orderingMethod = selectedMethod == .hybridLegacy ? .hybridWeather : selectedMethod
         preferences.themes = Set(answers.interests.map(\.rawValue))
         let supportedLabels = Set(planning.preferenceLabels.map(\.id))
         preferences.labels = answers.refinements.intersection(supportedLabels)
+        if selectedMethod.usesFlexibleSchedule {
+            if preferences.scheduleSource == nil { preferences.flexibleDeparture = true }
+            let timing = answers.timing.flatMap { PlanningTripTiming(rawValue: $0.rawValue) }
+            preferences.preferredDayPart = answers.dayPart.flatMap { PlanningDayPart(rawValue: $0.rawValue) }
+            if preferences.scheduleSource != .manual, preferences.scheduleSource != .resolved {
+                if preferences.tripTiming != timing || preferences.timingAnchor == nil { preferences.timingAnchor = clock() }
+                preferences.tripTiming = timing
+                preferences.scheduleSource = timing == nil ? .automatic : .timingAnswer
+                preferences.usesAutomaticTripDate = timing == nil
+            }
+            preferences.allowsAIProcessing = preferences.usesLuna && preferences.semanticAssistance != .disabled
+        }
         planning.enginePreferences = preferences
     }
 }

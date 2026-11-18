@@ -121,21 +121,40 @@ public struct PocketPlanningServices: Sendable {
     public var advise: @Sendable (VisitAdviceRequest) async throws -> PocketAdviceSelection
     public var resolve: (@Sendable (PlanningInput, UUID) async throws -> PocketVisitResolution)?
     public var order: (@Sendable (PlanningInput, UUID) async throws -> PlanningExperiencePlan)?
+    public var experience: (@Sendable ([PlanningInput], UUID) async throws -> [PlanningExperiencePlan])?
+    public var hours: (@Sendable (String) async -> PlanningHoursLookup)?
     public var attribution: @Sendable () async throws -> PlanningEvidence?
     public init(travel: @escaping @Sendable (Coordinate, Coordinate, Date, C67Domain.PlanningMode) async throws -> LegQuote,
                 weather: @escaping ItineraryPlanner.Weather,
                 advise: @escaping @Sendable (VisitAdviceRequest) async throws -> PocketAdviceSelection,
                 resolve: (@Sendable (PlanningInput, UUID) async throws -> PocketVisitResolution)? = nil,
                 order: (@Sendable (PlanningInput, UUID) async throws -> PlanningExperiencePlan)? = nil,
+                experience: (@Sendable ([PlanningInput], UUID) async throws -> [PlanningExperiencePlan])? = nil,
+                hours: (@Sendable (String) async -> PlanningHoursLookup)? = nil,
                 attribution: @escaping @Sendable () async throws -> PlanningEvidence? = { nil }) {
         self.travel = travel; self.weather = weather; self.advise = advise
         self.attribution = attribution
         self.resolve = resolve
         self.order = order
+        self.experience = experience
+        self.hours = hours
     }
 }
 
 public actor PocketResearchClient {
+    public func openingHours(placeID: String) async -> PlanningHoursLookup {
+        guard placeID.range(of: "^I[0-9A-Fa-f]{1,63}$", options: .regularExpression) != nil else {
+            return .init(status: "invalid_place_id")
+        }
+        do {
+            let body = try JSONEncoder().encode(["placeId": placeID])
+            let data = try await fetch("v1/hours/lookup", body: body)
+            let result = try JSONDecoder().decode(PlanningHoursLookup.self, from: data)
+            guard result.status != "available" || result.hours?.placeId == placeID else { return .init(status: "temporary_error") }
+            return result
+        } catch PlanningError.rateLimited { return .init(status: "rate_limited") }
+        catch { return .init(status: "temporary_error") }
+    }
     private final class RedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                         newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
@@ -148,6 +167,10 @@ public actor PocketResearchClient {
         configuration.urlCache = nil; configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = 25; configuration.timeoutIntervalForResource = 420
         session = URLSession(configuration: configuration, delegate: RedirectGuard(), delegateQueue: nil)
+    }
+    init(connection: any PocketConnectionProviding, session: URLSession) {
+        self.connection = connection
+        self.session = session
     }
     public static func validatedURL(_ raw: String) throws -> URL {
         guard let url = URL(string: raw), let host = url.host, !host.isEmpty,
@@ -162,7 +185,7 @@ public actor PocketResearchClient {
         guard url.scheme == "https" || permittedLocal else { throw EngineError.invalid("Use HTTPS for the Pocket server.") }
         return url
     }
-    func fetch(_ path: String, body: Data? = nil) async throws -> Data {
+    func fetch(_ path: String, body: Data? = nil, v42: Bool = false) async throws -> Data {
         let credentials = await connection.credentials()
         let isOrdering = path.hasPrefix("v1/order")
         guard !credentials.serverURL.isEmpty, !credentials.token.isEmpty else {
@@ -191,10 +214,13 @@ public actor PocketResearchClient {
             case 401, 403: throw PlanningError.failed("POCKET_CONNECTION_REJECTED")
             case 404 where body != nil: throw PlanningError.failed("POCKET_ORDER_ENDPOINT_MISSING")
             case 404: throw PlanningError.failed("ORDER_JOB_MISSING")
+            case 422 where v42: throw PlanningError.failed("POCKET_ORDER_METHOD_UNSUPPORTED")
             default: break
             }
         }
-        if http.statusCode == 408 || http.statusCode == 429 || http.statusCode >= 500 { throw PlanningError.unavailable }
+        if http.statusCode == 429 { throw PlanningError.rateLimited }
+        if isOrdering, [408, 504, 524].contains(http.statusCode) { throw PlanningError.timedOut }
+        if http.statusCode == 408 || http.statusCode >= 500 { throw PlanningError.unavailable }
         guard (200 ..< 300).contains(http.statusCode) else { throw EngineError.invalid("Pocket server request failed. Check the connection and token; no replacement AI result was used.") }
         return data
     }

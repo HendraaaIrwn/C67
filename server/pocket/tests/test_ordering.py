@@ -40,11 +40,76 @@ def answer(context):
                 stops=stops,alternativeOrder=None,tradeoffs=[],uncertainties=["No arrival or availability guarantee"])
 
 
+def compact_answer(context):
+    estimates = [dict(placeID=place["id"], activity=dict(suggestion="Synthetic activity", basis="unknown"),
+                      duration=dict(minMinutes=30, maxMinutes=45, rationale="Synthetic estimate", basis="experience_estimate"),
+                      durationUnknownReason=None)
+                 for place in context["places"]]
+    return dict(estimates=estimates, days={
+        day["date"]: [dict(placeID=estimate["placeID"], preferredDayPart="flexible", reason="Synthetic reason",
+                           weatherAdvice="", lightWindowRef=None, estimateOverride=None) for estimate in estimates]
+        for day in context["days"]
+    })
+
+
 class NoWeather:
     def read(self,*args): return []
 
 
 class OrderingTests(unittest.TestCase):
+    def test_compact_comparison_shares_estimates_and_keeps_dated_overrides(self):
+        request = body(count=2)
+        request.update(orderingMethod="hybrid_v4_2", comparisonDates=["2026-11-17"])
+        request["firstPlaceID"] = request["places"][1]["id"]
+        calls = []
+
+        def model(prompt, context):
+            calls.append(context)
+            result = compact_answer(context)
+            alternate = copy.deepcopy(result["estimates"][0])
+            alternate.pop("placeID")
+            alternate["duration"]["maxMinutes"] = 60
+            result["days"]["2026-11-17"][0]["estimateOverride"] = alternate
+            return result, "gpt-6-luna"
+
+        result = OrderingResolver(model, environment=NoWeather()).resolve(request)
+        comparison, = result["comparisonResults"]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result["candidateDate"], "2026-11-16")
+        self.assertEqual(comparison["candidateDate"], "2026-11-17")
+        self.assertEqual(result["stops"][0]["duration"]["maxMinutes"], 45)
+        self.assertEqual(comparison["stops"][0]["duration"]["maxMinutes"], 60)
+        self.assertEqual(comparison["stops"][1]["duration"], result["stops"][1]["duration"])
+        self.assertEqual(comparison["orderedIDs"][0], request["firstPlaceID"])
+
+    def test_compact_comparison_rejects_light_reference_from_another_date(self):
+        request = body(count=1)
+        request.update(orderingMethod="hybrid_v4_2", comparisonDates=["2026-11-17"])
+
+        def model(prompt, context):
+            result = compact_answer(context)
+            first_day, second_day = context["days"]
+            self.assertTrue(first_day["light"])
+            result["days"][second_day["date"]][0]["lightWindowRef"] = first_day["light"][0]["id"]
+            return result, "gpt-6-luna"
+
+        with self.assertRaisesRegex(ValueError, "Invalid ordering response"):
+            OrderingResolver(model, environment=NoWeather()).resolve(request)
+
+    def test_v4_preserves_unrestricted_luna_semantic_enrichment(self):
+        request = body()
+        request["orderingMethod"] = "hybrid_v4"
+        observed = {}
+
+        def model(prompt, context):
+            observed.update(context)
+            return answer(context), "gpt-6-luna"
+
+        result = OrderingResolver(model, environment=NoWeather()).resolve(request)
+        self.assertEqual(result["orderingMethod"], "hybrid_v4")
+        self.assertNotIn("candidateOrders", observed)
+        self.assertEqual(set(result["orderedIDs"]), {place["id"] for place in request["places"]})
+
     def test_user_token_is_verified_with_auth_service(self):
         user = str(uuid.uuid4())
         handler = SimpleNamespace(headers={"Authorization": "Bearer synthetic-user-token"})
@@ -187,6 +252,25 @@ class OrderingTests(unittest.TestCase):
             self.assertEqual(set(result["orderedIDs"]), {p["id"] for p in value["places"]})
             if method == "hybrid_weather": self.assertTrue(any("unknown" in x for x in result["contextWarnings"]))
 
+    def test_category_hints_are_unknown_only_for_weather_hybrid(self):
+        value = body(); value['places'][0]['categories'] = ['MKPOICategoryMovieTheater']
+        for method in ('luna', 'hybrid_legacy', 'hybrid_weather'):
+            value['orderingMethod'] = method
+            def model(prompt, context):
+                hints = context.get('categoryHoursHints')
+                if method == 'hybrid_weather':
+                    self.assertEqual(hints[0]['endSecondsFromStartDay'], 93600)
+                    self.assertEqual(hints[0]['venueHoursStatus'], 'unknown')
+                    self.assertIn('never claim a venue is open or closed', prompt)
+                else:
+                    self.assertIsNone(hints)
+                result = answer(context)
+                if 'candidateOrders' in context:
+                    result['orderedIDs'] = context['candidateOrders'][0]['orderedIDs']
+                return result, 'gpt-6-luna'
+            result = OrderingResolver(model, NoWeather()).resolve(value)
+            self.assertEqual(set(result['orderedIDs']), {p['id'] for p in value['places']})
+
     def test_hybrid_rejects_unoffered_permutation(self):
         value = body(); value["orderingMethod"] = "hybrid_legacy"
         def model(prompt, context):
@@ -223,7 +307,7 @@ class OrderingTests(unittest.TestCase):
             try:
                 base = f"http://127.0.0.1:{server.server_address[1]}"
                 headers = {"Authorization": "Bearer synthetic", "Content-Type": "application/json"}
-                for method in ("luna", "hybrid_legacy", "hybrid_weather"):
+                for method in ("luna", "hybrid_legacy", "hybrid_weather", "hybrid_v4"):
                     value = body(); value["orderingMethod"] = method
                     with urlopen(Request(base + "/v1/order", data=json.dumps(value).encode(), headers=headers)) as response:
                         self.assertEqual(response.status, 202)
@@ -235,7 +319,7 @@ class OrderingTests(unittest.TestCase):
                     self.assertEqual(result["status"], "succeeded", result)
                     self.assertEqual(result["result"]["orderingMethod"], method)
                     self.assertEqual(set(result["result"]["orderedIDs"]), {p["id"] for p in value["places"]})
-                self.assertEqual(len(calls), 3)
+                self.assertEqual(len(calls), 4)
             finally:
                 server.shutdown(); server.server_close(); thread.join()
 

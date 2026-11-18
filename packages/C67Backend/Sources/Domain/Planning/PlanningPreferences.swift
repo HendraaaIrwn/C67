@@ -4,6 +4,12 @@ public enum PlanningOrderingMethod: String, Codable, CaseIterable, Sendable {
     case luna
     case hybridLegacy = "hybrid_legacy"
     case hybridWeather = "hybrid_weather"
+    case hybridV4 = "hybrid_v4"
+    case hybridV41 = "hybrid_v4_1"
+    case hybridV42 = "hybrid_v4_2"
+
+    public var usesFlexibleSchedule: Bool { self == .hybridV41 || self == .hybridV42 }
+    public var isSchedule: Bool { self == .hybridV4 || usesFlexibleSchedule }
 }
 
 public enum PlanningVisitTiming: String, Codable, Sendable, CaseIterable {
@@ -30,9 +36,15 @@ public struct PlanningPreferences: Equatable, Codable, Sendable {
     public var automaticFirstPlan: Bool?
     public var reasonableOrdering: Bool?
     public var orderingMethod: PlanningOrderingMethod?
+    public var usesAutomaticTripDate: Bool?
     public var mainSpotID: UUID?
     public var endPoint: PlanningPoint?
     public var endPointName: String?
+    public var tripTiming: PlanningTripTiming?
+    public var preferredDayPart: PlanningDayPart?
+    public var scheduleSource: PlanningScheduleSource?
+    public var timingAnchor: Date?
+    public var semanticAssistance: PlanningSemanticAssistance?
     public init() {}
 }
 
@@ -51,6 +63,7 @@ public struct PlanningVisitConfirmation: Equatable, Codable, Sendable {
     public var opensAt: Date
     public var closesAt: Date
     public var publicAccessConfirmed: Bool
+    public var lastEntryAt: Date?
     public init(opensAt: Date, closesAt: Date, publicAccessConfirmed: Bool) {
         self.opensAt = opensAt; self.closesAt = closesAt; self.publicAccessConfirmed = publicAccessConfirmed
     }

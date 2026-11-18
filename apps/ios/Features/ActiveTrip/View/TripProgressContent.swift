@@ -9,6 +9,7 @@ struct TripProgressContent: View {
     var isDesignPreview = false
     var isBusy = false
     var error: String?
+    var recovery: RecoveryNotice.Action?
     var previewDistance: String?
     var route: MKRoute?
     var locationError: String?
@@ -99,6 +100,9 @@ struct TripProgressContent: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: arrived ? 16 : 8) {
+                        if let error {
+                            RecoveryNotice(title: "Trip update needs attention", message: error, primary: recovery)
+                        }
                         if trip.status == .completed {
                             Label("Trip completed", systemImage: "checkmark.circle.fill").font(.title.bold())
                             Text("All \(trip.plan.stops.count) visits are complete.")
@@ -111,7 +115,7 @@ struct TripProgressContent: View {
                                     PlaceThumbnail(imageName: details[stop.id]?.photoAsset, size: 48)
                                     Text(stop.name).font(.headline)
                                 }
-                                if trip.plan.experiencePlan != nil {
+                                if trip.plan.usesExperienceFlow {
                                     if trip.input.places.first(where: { $0.id == stop.id })?.durationOverridden == true {
                                         Text("Your visit length · \(stop.visitSeconds / 60) min")
                                     } else if let duration = trip.plan.experiencePlan?.stop(stop.id)?.duration {
@@ -127,7 +131,7 @@ struct TripProgressContent: View {
                                         PlaceThumbnail(imageName: details[upcoming.id]?.photoAsset, size: 48)
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text(upcoming.name).font(.headline)
-                                            Text(trip.plan.experiencePlan == nil ? "\(upcoming.travelSeconds / 60) min · planned travel" : ItineraryFormatting.drivingEstimate(upcoming))
+                                            Text(!trip.plan.usesExperienceFlow ? "\(upcoming.travelSeconds / 60) min · planned travel" : ItineraryFormatting.drivingEstimate(upcoming))
                                                 .font(.subheadline)
                                         }
                                     }
@@ -178,7 +182,6 @@ struct TripProgressContent: View {
                         }
                         if isDesignPreview { Text("Design preview · sample directions and estimates").font(.caption).foregroundStyle(.secondary) }
                         else if trip.synthetic { Text("Synthetic trip · estimates are demonstration data").font(.caption) }
-                        if let error { Label(error, systemImage: "exclamationmark.circle").font(.footnote) }
                         if isBusy { ProgressView("Updating trip…").tint(AppColor.brand) }
                     }
                     .padding(21)

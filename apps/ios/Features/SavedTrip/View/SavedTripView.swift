@@ -11,7 +11,9 @@ struct SavedTripView: View {
     var body: some View {
         Group {
             if let trip = presenter.trips.first(where: { $0.id == tripID }) {
-                SavedItineraryContent(trip: trip, isBusy: presenter.isBusy, error: presenter.error,
+                let issue = presenter.issues[.savedTrip(tripID)] ?? startIssue
+                SavedItineraryContent(trip: trip, isBusy: presenter.isBusy, error: issue?.message,
+                                      retry: recovery(for: issue, trip: trip),
                                       refreshRoute: trip.status == .planned && trip.plan.hasExperienceTravelFallback ? { refreshRoute() } : nil,
                                       primary: { primary(trip) })
                     .navigationDestination(isPresented: $showsProgress) {
@@ -42,15 +44,37 @@ struct SavedTripView: View {
                     }
                     .task {
                         if presenter.consumeStartRequest(for: tripID) { primary(trip) }
-                        else if trip.status == .planned, trip.plan.experiencePlan != nil, trip.plan.experienceRouteCheckedAt == nil {
+                        else if trip.status == .planned, trip.plan.usesExperienceFlow, trip.plan.experienceRouteCheckedAt == nil {
                             await presenter.refreshSavedExperienceRoute(tripID: tripID)
                         }
                     }
-                    .refreshable { await presenter.load() }
+                    .refreshable { await presenter.load(resumesJobs: false) }
             } else {
-                ContentUnavailableView("Trip unavailable", systemImage: "map",
-                                       description: Text("Return to Home and refresh your trips."))
+                ContentUnavailableView {
+                    Label("Trip unavailable", systemImage: "map")
+                } description: {
+                    Text("Return to Home and refresh your trips.")
+                } actions: {
+                    Button("Return to Home") { dismiss() }
+                }
             }
+        }
+    }
+
+    private var startIssue: PresentationIssue? {
+        guard let issue = presenter.issues[.activity(tripID)], case .event(.start, _) = issue.operation else { return nil }
+        return issue
+    }
+
+    private func recovery(for issue: PresentationIssue?, trip: PersonalPlanningTrip) -> (() -> Void)? {
+        guard let issue else { return nil }
+        if issue.recovery == .refreshTrip { return { Task { await presenter.load(resumesJobs: false) } } }
+        guard issue.recovery == .retry else { return nil }
+        switch issue.operation {
+        case .refreshSavedRoute: return { refreshRoute() }
+        case .delete: return { confirmsDelete = true }
+        case .event(.start, _): return { primary(trip) }
+        default: return nil
         }
     }
 

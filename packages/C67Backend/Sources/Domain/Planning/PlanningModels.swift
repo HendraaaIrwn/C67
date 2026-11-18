@@ -61,6 +61,8 @@ public struct PlanningPlace: Equatable, Codable, Sendable, Identifiable {
     public var availabilityVerified = false
     public var visitTiming: PlanningVisitTiming? = nil
     public var durationOverridden: Bool? = nil
+    public var minimumAcceptedVisitSeconds: Int? = nil
+    public var activitySession: PlanningActivitySession? = nil
     public init(id: UUID, name: String, location: PlanningPoint, visitSeconds: Int, website: URL? = nil, preferredAfter: Date? = nil, preferredBefore: Date? = nil) {
         self.id = id
         self.name = name
@@ -158,6 +160,8 @@ public struct PlanProposal: Equatable, Codable, Sendable, Identifiable {
     public var unscheduledPlaces: [String]? = nil
     public var experiencePlan: PlanningExperiencePlan? = nil
     public var experienceRouteCheckedAt: Date? = nil
+    public var rescheduledFromDate: Date? = nil
+    public var scheduleAssessment: PlanningScheduleAssessment? = nil
     public init(id: UUID, input: PlanningInput, stops: [ScheduledPlanningStop], finishesAt: Date?, feasible: Bool, explanation: String, warnings: [String], evidence: [PlanningEvidence], synthetic: Bool) {
         self.id = id
         self.input = input
@@ -213,6 +217,9 @@ public struct PlanningJob: Equatable, Codable, Sendable, Identifiable {
     public var result: PlanningResult?
     public var errorCode: String?
     public var createdAt: Date
+    public var scheduleAssessment: PlanningScheduleAssessment? = nil
+    public var semanticSnapshot: PlanningSemanticSnapshot? = nil
+    public var semanticSnapshots: [PlanningSemanticSnapshot]? = nil
     public init(id: UUID, status: PlanningJobStatus, purpose: PlanningPurpose, input: PlanningInput, tripID: UUID? = nil, baseRevision: Int? = nil, result: PlanningResult? = nil, errorCode: String? = nil, createdAt: Date) {
         self.id = id
         self.status = status
@@ -280,7 +287,7 @@ public extension PlanningInput {
               abs(origin.latitude) <= 90, abs(origin.longitude) <= 180 else { throw PlanningError.invalidInput }
         if enginePreferences != nil, purpose != .suggest {
             var calendar = Calendar(identifier: .gregorian)
-            calendar.timeZone = TimeZone(identifier: "Asia/Jakarta")!
+            calendar.timeZone = TimeZone(identifier: timeZone)!
             guard calendar.isDate(startsAt, inSameDayAs: finishBy) else { throw PlanningError.invalidInput }
         }
         for place in places {
@@ -289,6 +296,15 @@ public extension PlanningInput {
                   abs(place.location.latitude) <= 90, abs(place.location.longitude) <= 180 else { throw PlanningError.invalidInput }
             if let website = place.website, website.absoluteString.count > 2048 { throw PlanningError.invalidInput }
             if let after = place.preferredAfter, let before = place.preferredBefore, after > before { throw PlanningError.invalidInput }
+            if let minimum = place.minimumAcceptedVisitSeconds, minimum <= 0 || minimum > place.visitSeconds { throw PlanningError.invalidInput }
+            if let session = place.activitySession {
+                guard session.startsAt < session.endsAt, session.endsAt.timeIntervalSince(session.startsAt) <= 86400,
+                      session.arriveBy == nil || session.arriveBy! <= session.startsAt else { throw PlanningError.invalidInput }
+            }
+            if let confirmation = place.visitConfirmation {
+                guard confirmation.opensAt < confirmation.closesAt,
+                      confirmation.lastEntryAt == nil || (confirmation.lastEntryAt! >= confirmation.opensAt && confirmation.lastEntryAt! <= confirmation.closesAt) else { throw PlanningError.invalidInput }
+            }
         }
         if let firstPlaceID, !places.contains(where: { $0.id == firstPlaceID }) { throw PlanningError.invalidInput }
         if preservesPlaceOrder, let firstPlaceID, places.first?.id != firstPlaceID { throw PlanningError.invalidInput }
@@ -301,7 +317,7 @@ public extension PersonalPlanningTrip {
 
 public enum PlanningError: Error, Equatable, LocalizedError, Sendable {
     case invalidInput, configurationRequired, authenticationRequired, invalidResponse, notFound
-    case revisionConflict, requestConflict, unavailable, rateLimited, expired, failed(String)
+    case revisionConflict, requestConflict, unavailable, timedOut, rateLimited, expired, failed(String)
     public var errorDescription: String? {
         switch self {
         case .invalidInput: "Check your selected places, visit details and trip settings."
@@ -312,10 +328,12 @@ public enum PlanningError: Error, Equatable, LocalizedError, Sendable {
         case .revisionConflict: "Your trip changed. Refresh it and request a new proposal."
         case .requestConflict: "This request no longer matches its original input. Start a new request."
         case .unavailable: "Planning is unavailable. Your saved trip is unchanged. Try again."
+        case .timedOut: "The planner took longer than expected."
         case .rateLimited: "The planning limit was reached. Wait before trying again."
         case .expired: "This proposal expired. Request a fresh plan."
         case .failed(let code):
             switch code {
+            case "PLANNING_ALREADY_RUNNING": "Another itinerary is still being prepared. Check its status before starting another."
             case "POCKET_CONNECTION_REQUIRED": "Sign in or check your Pocket connection in Account. Your selected places are kept."
             case "POCKET_CONNECTION_REJECTED": "The Pocket server rejected the connection. Check your account and connection, then try again."
             case "POCKET_ORDER_ENDPOINT_MISSING": "This Pocket server does not support itinerary recommendations. Check the server URL in Account."
@@ -325,6 +343,18 @@ public enum PlanningError: Error, Equatable, LocalizedError, Sendable {
             case "ORDER_SERVER_INTERRUPTED": "The Pocket server stopped processing this request. Try again to start a new recommendation."
             case "ORDER_CONNECTION_INTERRUPTED": "The app lost contact with the Pocket server. Check the same request when the connection is back."
             case "ORDER_RESPONSE_INVALID": "The app could not verify the recommendation. Your selected places are kept."
+            case "V4_UNSUPPORTED_INPUT": "Hybrid v4 needs a known duration for each place and supports up to six places. Choose another method or update the trip."
+            case "V4_DURATION_UNKNOWN": "A visit duration is unavailable. Open Adjust schedule and set a duration for each place, then try again."
+            case "V4_WINDOW_TOO_SHORT": "The visits and travel cannot fit within the selected time window. Adjust your schedule."
+            case "V4_TODAY_TOO_SHORT": "There isn’t enough time for the trip today. Try tomorrow or adjust the schedule."
+            case "V4_TOMORROW_TOO_SHORT": "There isn’t enough time for these visits today or tomorrow. Adjust your schedule."
+            case "V4_TOMORROW_UNVERIFIED": "Today’s window was too short, and a complete schedule for tomorrow couldn’t be verified. Adjust your schedule or try again."
+            case "V4_ROUTE_THROTTLED": "Apple Maps is temporarily limiting route estimates. Wait a moment and try again."
+            case "V4_NO_SCHEDULE": "Hybrid v4 could not verify a complete schedule with the available route estimates and constraints. Try a wider time window or another method."
+            case "V41_NO_SCHEDULE": "Travelant could not verify a complete schedule with the available estimates. Review the details or try again."
+            case "V41_ACCESS_CONFLICT": "A visit conflicts with the available opening hours or its session. Review visit availability."
+            case "V41_DATE_CONFLICT": "The selected date conflicts with a dated visit. Review the trip date and visit confirmation."
+            case "V41_BUDGET_REACHED": "The route search reached its limit. Your selected places are kept. Try again to check more candidates."
             case "ORDER_GENERATION_FAILED": "The Pocket server could not complete the recommendation. Your selected places are kept. Try again."
             case "PROVIDER_CONFIGURATION_REQUIRED": "Live AI or Apple data is not configured on the planning server."
             case "ROUTE_UNAVAILABLE": "A route estimate is unavailable. No travel time was invented."
