@@ -45,9 +45,7 @@ import C67Domain
     private static let timingLogger = Logger(subsystem: "io.pibeebee.c67", category: "PlanningTiming")
 
     init(planning: PlanningPresenter, mode: String, specificPlace: Bool, interactor: TripCreationInteractor,
-         orderingMethod: @escaping () -> PlanningOrderingMethod = {
-             PlanningOrderingMethod(rawValue: UserDefaults.standard.string(forKey: "io.pibeebee.c67.orderingMethod") ?? "") ?? .luna
-         }, clock: @escaping () -> Date = { .now }) {
+         orderingMethod: @escaping () -> PlanningOrderingMethod = { .hybridV42 }, clock: @escaping () -> Date = { .now }) {
         self.planning = planning
         self.mode = mode
         root = specificPlace ? .places : .question(.interests)
@@ -62,6 +60,7 @@ import C67Domain
 
     var route: TripCreationRoute { path.last ?? root }
     var usesV41: Bool { orderingMethod().usesFlexibleSchedule }
+    var usesFoundationModels: Bool { orderingMethod() == .hybridV42FoundationModels }
     var hasSixPlaceLimit: Bool { !planning.supportsOnDevicePlanning || orderingMethod().isSchedule }
     var scheduleAssessment: PlanningScheduleAssessment? { planning.firstItineraryJob?.scheduleAssessment }
     var scheduleSummary: String {
@@ -508,7 +507,7 @@ import C67Domain
                 preferences.scheduleSource = timing == nil ? .automatic : .timingAnswer
                 preferences.usesAutomaticTripDate = timing == nil
             }
-            preferences.allowsAIProcessing = preferences.usesLuna && preferences.semanticAssistance != .disabled
+            preferences.allowsAIProcessing = (usesFoundationModels || preferences.usesLuna) && preferences.semanticAssistance != .disabled
         }
         planning.enginePreferences = preferences
     }
