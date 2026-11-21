@@ -14,6 +14,8 @@ struct TripInterestQuestionView: View {
     @Namespace private var preferenceAnimation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private let maximumSelectionCount = PreferenceAnswers.maximumInterestSelections
+
     private let quickPicks = ["matcha", "street_food_area", "sunset_viewing", "art_gallery", "city_park", "thrift_shop", "cinema", "bowling_alley", "mangrove_park", "photography_activity", "museum", "spa", "karaoke", "go_kart"]
 
     private var options: [(option: TripPreferenceCatalog.Option, symbol: String)] {
@@ -25,6 +27,8 @@ struct TripInterestQuestionView: View {
     var body: some View {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let selected = options.filter { selectedRefinements.contains($0.option.id) }
+        let selectionCount = selection.count + selectedRefinements.count
+        let isAtSelectionLimit = selectionCount >= maximumSelectionCount
         let visible = term.isEmpty ? options.filter { quickPicks.contains($0.option.id) && !selectedRefinements.contains($0.option.id) }.sorted {
             (quickPicks.firstIndex(of: $0.option.id) ?? 0) < (quickPicks.firstIndex(of: $1.option.id) ?? 0)
         } : options.filter { String(localized: $0.option.title).localizedStandardContains(term) }
@@ -47,6 +51,16 @@ struct TripInterestQuestionView: View {
                         .padding(.horizontal, 12)
                 }
                 if term.isEmpty && (!selected.isEmpty || !selection.isEmpty) {
+                    HStack {
+                        Text("Your interests")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(selectionCount) / \(maximumSelectionCount)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppColor.accent)
+                            .accessibilityLabel("\(selectionCount) of \(maximumSelectionCount) interests chosen")
+                            .accessibilityIdentifier("interestSelectionCount")
+                    }
                     FlowLayout(spacing: 8, lineSpacing: 8) {
                         ForEach(TripInterest.allCases.filter { selection.contains($0) }) { interest in
                             ChoiceChip(title: interest.title, systemImage: interest.systemImage, isSelected: true) {
@@ -60,6 +74,11 @@ struct TripInterestQuestionView: View {
                                 .accessibilityIdentifier("selectedPreference-\(item.option.id)")
                         }
                     }
+                    if isAtSelectionLimit {
+                        Text("Maximum 5 reached. Remove an interest above to choose another.")
+                            .font(.footnote)
+                            .foregroundStyle(AppColor.secondaryText)
+                    }
                 }
                 Text(term.isEmpty ? "Quick picks" : "Search results").font(.headline)
                 if visible.isEmpty && !term.isEmpty {
@@ -71,6 +90,7 @@ struct TripInterestQuestionView: View {
                                        isSelected: selectedRefinements.contains(item.option.id)) { animateToggle(item.option.id) }
                                 .matchedGeometryEffect(id: item.option.id, in: preferenceAnimation)
                                 .accessibilityIdentifier("pocketLabel-\(item.option.id)")
+                                .disabled(isAtSelectionLimit && !selectedRefinements.contains(item.option.id))
                         }
                     }
                 }
@@ -81,6 +101,7 @@ struct TripInterestQuestionView: View {
                             ChoiceChip(title: interest.title, systemImage: interest.systemImage,
                                        isSelected: false) { animateInterestToggle(interest) }
                                 .matchedGeometryEffect(id: "interest-\(interest.id)", in: preferenceAnimation)
+                                .disabled(isAtSelectionLimit)
                         }
                     }
                 }
@@ -90,23 +111,12 @@ struct TripInterestQuestionView: View {
                         Label(option.title, systemImage: "tag")
                     }
                     .accessibilityIdentifier("pocketLabel-\(option.id)")
+                    .disabled(isAtSelectionLimit && !selectedRefinements.contains(option.id))
                 }
             }
         } footer: {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 24) {
-                    Text("\(selection.count + selectedRefinements.count) selected")
-                        .font(.subheadline).fixedSize()
-                    QuestionPrimaryButton("Next", action: next)
-                        .disabled(selection.isEmpty && selectedRefinements.isEmpty)
-                        .frame(minWidth: 100)
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("\(selection.count + selectedRefinements.count) selected").font(.subheadline)
-                    QuestionPrimaryButton("Next", action: next)
-                        .disabled(selection.isEmpty && selectedRefinements.isEmpty)
-                }
-            }
+            QuestionPrimaryButton("Next", action: next)
+                .disabled(selection.isEmpty && selectedRefinements.isEmpty)
         }
     }
 

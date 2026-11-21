@@ -25,11 +25,10 @@ final class RecommendationsUITests: XCTestCase {
         let option = app.buttons["pocketLabel-museum"]
         XCTAssertTrue(option.waitForExistence(timeout: 5))
         option.tap()
-        XCTAssertTrue(app.staticTexts["1 selected"].exists)
         app.buttons["Clear search"].tap()
         XCTAssertTrue(app.buttons["selectedPreference-museum"].waitForExistence(timeout: 5))
         app.buttons["selectedPreference-museum"].tap()
-        XCTAssertTrue(app.staticTexts["0 selected"].exists)
+        XCTAssertTrue(app.buttons["pocketLabel-museum"].waitForExistence(timeout: 5))
     }
 
     @MainActor func testSelectedQuickPickMovesAndReturnsWhenRemoved() {
@@ -45,7 +44,6 @@ final class RecommendationsUITests: XCTestCase {
         quickPick.tap()
         XCTAssertTrue(selected.waitForExistence(timeout: 5))
         XCTAssertFalse(quickPick.exists)
-        XCTAssertTrue(app.staticTexts["1 selected"].exists)
         XCTAssertTrue(app.buttons["Next"].isHittable)
         let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = "Preferences with a selected interest"
@@ -54,7 +52,6 @@ final class RecommendationsUITests: XCTestCase {
         selected.tap()
         XCTAssertTrue(quickPick.waitForExistence(timeout: 5))
         XCTAssertFalse(selected.exists)
-        XCTAssertTrue(app.staticTexts["0 selected"].exists)
     }
 
     @MainActor func testRecommendationShowsShortAddressAndDistance() {
