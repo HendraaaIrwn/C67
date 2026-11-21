@@ -122,19 +122,22 @@ final class RecommendationsUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Recommendations"].waitForExistence(timeout: 10))
         let candidate = app.buttons["Synthetic tourist attraction 1"]
         XCTAssertTrue(candidate.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["3 places selected"].exists)
+        XCTAssertTrue(app.staticTexts["0 places selected"].exists)
         candidate.tap()
-        XCTAssertTrue(app.staticTexts["4 places selected"].exists)
+        XCTAssertTrue(app.staticTexts["1 places selected"].exists)
         app.buttons["My Places"].tap()
         XCTAssertTrue(app.navigationBars["Places"].waitForExistence(timeout: 5))
         app.buttons["Remove Synthetic tourist attraction 1"].tap()
         app.buttons["Close"].tap()
+        XCTAssertTrue(app.staticTexts["0 places selected"].waitForExistence(timeout: 5))
+        // The trip needs at least three places before it can be planned.
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recommendation-"))
+        for index in 0 ..< 3 { rows.element(boundBy: index).tap() }
         XCTAssertTrue(app.staticTexts["3 places selected"].waitForExistence(timeout: 5))
-        candidate.tap()
         app.buttons["recommendationsNext"].tap()
         XCTAssertTrue(app.buttons["Next"].waitForExistence(timeout: 5))
         app.buttons["Next"].tap()
-        XCTAssertTrue(app.navigationBars["Itinerary"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Here’s your itinerary"].waitForExistence(timeout: 10))
     }
 
     @MainActor func testCanSelectMoreThanThreeAndUndo() {

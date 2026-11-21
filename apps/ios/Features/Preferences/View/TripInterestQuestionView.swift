@@ -11,6 +11,7 @@ struct TripInterestQuestionView: View {
     var selectedRefinements: Set<String> = []
     var toggleRefinement: (String) -> Void = { _ in }
     @State private var query = ""
+    @State private var rejectedSelectionCount = 0
     @Namespace private var preferenceAnimation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -34,32 +35,22 @@ struct TripInterestQuestionView: View {
         } : options.filter { String(localized: $0.option.title).localizedStandardContains(term) }
         QuestionScaffold(title: Text("What sounds \(QuestionTitle.highlight("good")) today?"), contentSpacing: 24, skip: skip) {
             VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField("Search place types or activities", text: $query)
-                            .accessibilityIdentifier("preferenceSearch")
-                        if !query.isEmpty {
-                            Button("Clear search", systemImage: "xmark.circle.fill") { query = "" }
-                                .labelStyle(.iconOnly)
-                        }
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search place types or activities", text: $query)
+                        .accessibilityIdentifier("preferenceSearch")
+                    if !query.isEmpty {
+                        Button("Clear search", systemImage: "xmark.circle.fill") { query = "" }
+                            .labelStyle(.iconOnly)
                     }
-                    .padding(12).background(AppColor.surface, in: .capsule)
-                    Text("Search more places, activities, and interests")
-                        .font(.footnote)
-                        .foregroundStyle(AppColor.secondaryText)
-                        .padding(.horizontal, 12)
                 }
+                .padding(12).background(AppColor.surface, in: .capsule)
                 if term.isEmpty && (!selected.isEmpty || !selection.isEmpty) {
                     HStack {
                         Text("Your interests")
                             .font(.headline)
                         Spacer()
-                        Text("\(selectionCount) / \(maximumSelectionCount)")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppColor.accent)
-                            .accessibilityLabel("\(selectionCount) of \(maximumSelectionCount) interests chosen")
-                            .accessibilityIdentifier("interestSelectionCount")
+                        selectionMeter(count: selectionCount, isFull: isAtSelectionLimit)
                     }
                     FlowLayout(spacing: 8, lineSpacing: 8) {
                         ForEach(TripInterest.allCases.filter { selection.contains($0) }) { interest in
@@ -74,11 +65,6 @@ struct TripInterestQuestionView: View {
                                 .accessibilityIdentifier("selectedPreference-\(item.option.id)")
                         }
                     }
-                    if isAtSelectionLimit {
-                        Text("Maximum 5 reached. Remove an interest above to choose another.")
-                            .font(.footnote)
-                            .foregroundStyle(AppColor.secondaryText)
-                    }
                 }
                 Text(term.isEmpty ? "Quick picks" : "Search results").font(.headline)
                 if visible.isEmpty && !term.isEmpty {
@@ -86,11 +72,14 @@ struct TripInterestQuestionView: View {
                 } else {
                     FlowLayout(spacing: 8, lineSpacing: 8) {
                         ForEach(visible, id: \.option.id) { item in
+                            let isLocked = isAtSelectionLimit && !selectedRefinements.contains(item.option.id)
                             ChoiceChip(title: item.option.title, systemImage: item.symbol,
-                                       isSelected: selectedRefinements.contains(item.option.id)) { animateToggle(item.option.id) }
-                                .matchedGeometryEffect(id: item.option.id, in: preferenceAnimation)
-                                .accessibilityIdentifier("pocketLabel-\(item.option.id)")
-                                .disabled(isAtSelectionLimit && !selectedRefinements.contains(item.option.id))
+                                       isSelected: selectedRefinements.contains(item.option.id)) {
+                                isLocked ? rejectSelection() : animateToggle(item.option.id)
+                            }
+                            .lockedAtSelectionLimit(isLocked)
+                            .matchedGeometryEffect(id: item.option.id, in: preferenceAnimation)
+                            .accessibilityIdentifier("pocketLabel-\(item.option.id)")
                         }
                     }
                 }
@@ -99,25 +88,67 @@ struct TripInterestQuestionView: View {
                     FlowLayout(spacing: 8, lineSpacing: 8) {
                         ForEach(TripInterest.allCases.filter { !selection.contains($0) }) { interest in
                             ChoiceChip(title: interest.title, systemImage: interest.systemImage,
-                                       isSelected: false) { animateInterestToggle(interest) }
-                                .matchedGeometryEffect(id: "interest-\(interest.id)", in: preferenceAnimation)
-                                .disabled(isAtSelectionLimit)
+                                       isSelected: false) {
+                                isAtSelectionLimit ? rejectSelection() : animateInterestToggle(interest)
+                            }
+                            .lockedAtSelectionLimit(isAtSelectionLimit)
+                            .matchedGeometryEffect(id: "interest-\(interest.id)", in: preferenceAnimation)
                         }
                     }
                 }
                 let extra = supportedRefinements.filter { !TripPreferenceCatalog.ids.contains($0.id) && (term.isEmpty ? selectedRefinements.contains($0.id) : $0.title.localizedStandardContains(term)) }
                 ForEach(extra) { option in
-                    Button { toggleRefinement(option.id) } label: {
+                    let isLocked = isAtSelectionLimit && !selectedRefinements.contains(option.id)
+                    Button { isLocked ? rejectSelection() : toggleRefinement(option.id) } label: {
                         Label(option.title, systemImage: "tag")
                     }
+                    .lockedAtSelectionLimit(isLocked)
                     .accessibilityIdentifier("pocketLabel-\(option.id)")
-                    .disabled(isAtSelectionLimit && !selectedRefinements.contains(option.id))
                 }
             }
         } footer: {
             QuestionPrimaryButton("Next", action: next)
                 .disabled(selection.isEmpty && selectedRefinements.isEmpty)
         }
+        .sensoryFeedback(.warning, trigger: rejectedSelectionCount)
+    }
+
+    /// Five dots that fill as interests are chosen; "Full" appears once the cap is reached.
+    private func selectionMeter(count: Int, isFull: Bool) -> some View {
+        HStack(spacing: 6) {
+            if isFull {
+                Text("Full")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppColor.secondaryText)
+                    .transition(.opacity)
+            }
+            HStack(spacing: 5) {
+                ForEach(0 ..< maximumSelectionCount, id: \.self) { index in
+                    Circle()
+                        .fill(index < count ? AppColor.brand : AppColor.tertiaryFill)
+                        .frame(width: 8, height: 8)
+                }
+            }
+        }
+        .keyframeAnimator(initialValue: CGFloat.zero, trigger: rejectedSelectionCount) { meter, offset in
+            meter.offset(x: reduceMotion ? 0 : offset)
+        } keyframes: { _ in
+            KeyframeTrack {
+                SpringKeyframe(CGFloat(-5), duration: 0.07)
+                SpringKeyframe(CGFloat(5), duration: 0.07)
+                SpringKeyframe(CGFloat(-3), duration: 0.07)
+                SpringKeyframe(CGFloat.zero, duration: 0.12)
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: count)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(count) of \(maximumSelectionCount) interests chosen")
+        .accessibilityIdentifier("interestSelectionCount")
+    }
+
+    /// Tapping an option while the cap is reached explains the limit instead of doing nothing.
+    private func rejectSelection() {
+        rejectedSelectionCount += 1
     }
 
     private func animateToggle(_ id: String) {
@@ -133,7 +164,33 @@ struct TripInterestQuestionView: View {
     }
 }
 
+private extension View {
+    /// Dims an option that can't be added while the interest cap is reached. It stays tappable
+    /// so the tap can answer with feedback, and VoiceOver hears why it isn't available.
+    func lockedAtSelectionLimit(_ isLocked: Bool) -> some View {
+        opacity(isLocked ? 0.45 : 1)
+            .accessibilityHint(isLocked ? Text("Remove an interest to choose this one.") : Text(""))
+    }
+}
+
 #if DEBUG
+    #Preview("Q1 · Full") {
+        @Previewable @State var answers = PreferenceAnswers(
+            interests: [.foodie, .culture, .nature],
+            refinements: ["matcha", "photography_activity"]
+        )
+        PreferenceQuestionPreview {
+            TripInterestQuestionView(
+                selection: answers.interests,
+                toggle: { answers.toggle($0) },
+                next: {},
+                skip: {},
+                selectedRefinements: answers.refinements,
+                toggleRefinement: { answers.toggleRefinement($0) }
+            )
+        }
+    }
+
     #Preview("Q1 · Unselected") {
         @Previewable @State var selection: Set<TripInterest> = []
         PreferenceQuestionPreview {
