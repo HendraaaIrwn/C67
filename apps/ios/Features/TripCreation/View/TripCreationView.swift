@@ -38,22 +38,14 @@ struct TripCreationView: View {
                 .navigationDestination(for: TripCreationRoute.self) { screen($0) }
         }
         .fullScreenCover(isPresented: Binding(get: { presenter.isProcessing || showsReady }, set: { _ in })) {
-            TripProcessingView(advances: false, messageOverride: presenter.planning.progress,
-                               activity: presenter.planning.activity, isReady: showsReady)
+            TripProcessingView(messageOverride: presenter.planning.progress, isReady: showsReady)
                 .animation(.smooth(duration: 0.4), value: showsReady)
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if !showsReady {
-                        // Leaving keeps the request running on this device; without on-device planning it just closes.
-                        VStack {
-                            QuestionPrimaryButton(presenter.planning.supportsOnDevicePlanning ? "Continue Later" : "Cancel") {
-                                operation?.cancel(); dismiss()
-                            }
-                            .accessibilityIdentifier("tripProcessingContinueLater")
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 8)
-                        .frame(maxWidth: 640)
+                .bottomActionBar(isVisible: !showsReady) {
+                    // Leaving keeps the request running on this device; without on-device planning it just closes.
+                    QuestionPrimaryButton(presenter.planning.supportsOnDevicePlanning ? "Continue Later" : "Cancel") {
+                        operation?.cancel(); dismiss()
                     }
+                    .accessibilityIdentifier("tripProcessingContinueLater")
                 }
                 .interactiveDismissDisabled()
         }
@@ -234,13 +226,15 @@ struct TripCreationView: View {
         .disabled(presenter.isProcessing)
         .toolbar(presenter.isProcessing ? .hidden : .automatic, for: .navigationBar)
         .toolbar {
-            if presenter.path.isEmpty {
-                ToolbarItem(placement: .cancellationAction) {
-                    cancelButton
-                }
-            } else {
-                ToolbarItem(placement: .topBarTrailing) {
-                    cancelButton
+            if route != .review || presenter.reviewProposal?.usesExperienceFlow != true {
+                if presenter.path.isEmpty {
+                    ToolbarItem(placement: .cancellationAction) {
+                        cancelButton
+                    }
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        cancelButton
+                    }
                 }
             }
         }

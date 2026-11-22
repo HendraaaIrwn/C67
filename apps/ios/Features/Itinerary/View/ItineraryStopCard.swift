@@ -117,6 +117,6 @@ struct ItineraryStopCard: View {
     private var visitRange: String {
         let start = ItineraryFormatting.time(stop.visitStartsAt ?? stop.arrivalAt, zone: zone, locale: locale)
         let end = ItineraryFormatting.time(stop.departureAt, zone: zone, locale: locale)
-        return showsEstimatedTimes ? "≈ \(start)–\(end)" : "\(start)–\(end)"
+        return "\(start)–\(end)"
     }
 }

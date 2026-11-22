@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import C67Domain
 
 /// Multi-select themes and preferences for the first trip question.
@@ -223,49 +222,3 @@ private extension View {
         .dynamicTypeSize(.accessibility2)
     }
 #endif
-
-/// The system `UISearchBar`, kept in the content under the question title (where `.searchable`
-/// can't go): native field, clear button and Cancel while typing.
-private struct NativeSearchBar: UIViewRepresentable {
-    @Binding var text: String
-    let prompt: String
-    let accessibilityIdentifier: String
-
-    func makeUIView(context: Context) -> UISearchBar {
-        let bar = UISearchBar()
-        bar.searchBarStyle = .minimal
-        bar.placeholder = prompt
-        bar.autocorrectionType = .no
-        bar.returnKeyType = .search
-        bar.delegate = context.coordinator
-        bar.searchTextField.accessibilityIdentifier = accessibilityIdentifier
-        bar.setContentHuggingPriority(.defaultHigh, for: .vertical)
-        return bar
-    }
-
-    func updateUIView(_ bar: UISearchBar, context: Context) {
-        if bar.text != text { bar.text = text }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
-
-    final class Coordinator: NSObject, UISearchBarDelegate {
-        @Binding var text: String
-
-        init(text: Binding<String>) { _text = text }
-
-        func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) { text = searchText }
-
-        func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) { searchBar.setShowsCancelButton(true, animated: true) }
-
-        func searchBarTextDidEndEditing(_ searchBar: UISearchBar) { searchBar.setShowsCancelButton(false, animated: true) }
-
-        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) { searchBar.resignFirstResponder() }
-
-        func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
-            text = ""
-            searchBar.text = ""
-            searchBar.resignFirstResponder()
-        }
-    }
-}

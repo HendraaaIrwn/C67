@@ -325,7 +325,7 @@ struct PlanningSearchSheet: View {
     @State private var mapCenter: CLLocationCoordinate2D?
     @State private var listHeight: CGFloat = 0
     @State private var recents: [PlanningPlace] = []
-    @FocusState private var isSearchFocused: Bool
+    @State private var isSearchFocused = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let near: PlanningPoint?
@@ -457,23 +457,11 @@ struct PlanningSearchSheet: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(AppColor.secondaryText)
-            TextField("Search place or address", text: $search.query)
-                .focused($isSearchFocused)
-                .submitLabel(.search)
-                .autocorrectionDisabled()
-                .onSubmit { Task { await search.search(near: near) } }
-                .accessibilityIdentifier("placeSearchField")
-            if !search.query.isEmpty {
-                Button("Clear search", systemImage: "xmark.circle.fill") { search.query = "" }
-                    .labelStyle(.iconOnly)
-                    .foregroundStyle(AppColor.secondaryText)
-            }
+        NativeSearchBar(text: $search.query, prompt: String(localized: "Search place or address"),
+                        accessibilityIdentifier: "placeSearchField", isFocused: $isSearchFocused) {
+            Task { await search.search(near: near) }
         }
-        .padding(.horizontal, 14)
-        .frame(minHeight: 48)
-        .background(AppColor.tertiaryFill, in: .capsule)
+        .padding(.horizontal, -8)
         .simultaneousGesture(TapGesture().onEnded { if panel == .collapsed { setPanel(.expanded) } })
         .onChange(of: isSearchFocused) { _, focused in
             if focused, panel == .collapsed { setPanel(.expanded) }

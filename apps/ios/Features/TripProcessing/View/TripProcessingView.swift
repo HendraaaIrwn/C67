@@ -3,26 +3,42 @@ import C67Domain
 
 /// Full-screen trip ordering and completion states.
 ///
-/// The message moves from the trip, to the weather, to live traffic, then stays on the last one
-/// until the caller replaces this view with the result.
+/// It opens on the planner's own status line (for example "Checking candidate schedules…"), then
+/// cycles the three Sketch scenes on a timer — routes, putting it together, forecast — regardless
+/// of what the planner is doing, until the caller replaces this view with the result.
 struct TripProcessingView: View {
     @State private var stage: TripProcessingStage
+    @State private var opening: String?
+    @State private var rotation: Scene?
     private let advances: Bool
     private let messageOverride: String?
-    private let activity: PlanningActivity?
     private let isReady: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// How long each line stays on screen before the next one.
+    static let sceneInterval: Duration = .seconds(2.8)
+    /// The order the scenes cycle in once the opening line has been shown.
+    static let sceneCycle: [Scene] = [.routes, .together, .forecast]
+
     /// - Parameters:
-    ///   - stage: The first message to show.
-    ///   - advances: Whether the messages move on by themselves. Previews pass false to hold one.
-    init(stage: TripProcessingStage = .puttingTogether, advances: Bool = true, messageOverride: String? = nil, activity: PlanningActivity? = nil, isReady: Bool = false) {
+    ///   - stage: The scene to hold when there is no opening line and the view doesn't advance.
+    ///   - advances: Whether the scenes cycle by themselves. Previews pass false to hold one.
+    ///   - messageOverride: The planner's status line shown first, before the scenes start cycling.
+    init(stage: TripProcessingStage = .puttingTogether, advances: Bool = true, messageOverride: String? = nil, isReady: Bool = false) {
         _stage = State(initialValue: stage)
+        _opening = State(initialValue: messageOverride)
         self.advances = advances
         self.messageOverride = messageOverride
-        self.activity = activity
         self.isReady = isReady
+    }
+
+    private var scene: Scene? { rotation ?? (opening == nil ? Scene(stage) : nil) }
+
+    private var message: Text {
+        if let rotation { return Self.message(for: rotation) }
+        if let opening { return Self.message(forStatus: opening) }
+        return Self.message(for: Scene(stage))
     }
 
     var body: some View {
@@ -33,39 +49,44 @@ struct TripProcessingView: View {
                                leavesAfter: .seconds(1.25))
                     .accessibilityIdentifier("tripProcessingReady")
             } else {
-                TripPlanningWaitLayout(
-                    message: activity.map { Self.message(for: Scene($0)) } ?? messageOverride.map { Text($0) }
-                        ?? Self.message(for: Scene(stage)),
-                    raining: scene == .forecast
-                )
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: scene)
+                TripPlanningWaitLayout(message: message, raining: scene == .forecast)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: scene)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: opening)
             }
         }
         .accessibilityIdentifier("tripProcessing")
+        .onChange(of: messageOverride) { _, status in
+            // Only the first status line opens the sequence; later planner updates don't interrupt it.
+            if opening == nil, rotation == nil, let status { opening = status }
+        }
         .task {
             guard advances else { return }
-            while let next = stage.next {
-                try? await Task.sleep(for: TripProcessingStage.interval)
+            var index = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.sceneInterval)
                 guard !Task.isCancelled else { return }
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
-                    stage = next
+                    rotation = Self.sceneCycle[index % Self.sceneCycle.count]
                 }
+                index += 1
             }
         }
     }
 
+    /// The planner's status line, with its key word highlighted like the scene lines.
+    static func message(forStatus status: String) -> Text {
+        switch status {
+        case "Checking candidate schedules…": Text("Checking \(QuestionTitle.highlight("candidate")) schedules…")
+        case "Preparing your itinerary…": Text("Preparing your \(QuestionTitle.highlight("itinerary"))…")
+        case "Checking driving times…": Text("Checking \(QuestionTitle.highlight("driving times"))…")
+        default: Text(status)
+        }
+    }
+
     /// The three scenes from Sketch HI-FI `PREFERENCES PROCESSING 2`: forecast (with rain), routes,
-    /// then putting the itinerary together. Planning activities and timed stages both map onto them.
+    /// then putting the itinerary together.
     enum Scene: Equatable {
         case forecast, routes, together
-
-        init(_ activity: PlanningActivity) {
-            switch activity {
-            case .weather: self = .forecast
-            case .travelTimes: self = .routes
-            case .luna, .onDeviceAdvice, .openingHours: self = .together
-            }
-        }
 
         init(_ stage: TripProcessingStage) {
             switch stage {
@@ -75,8 +96,6 @@ struct TripProcessingView: View {
             }
         }
     }
-
-    private var scene: Scene { activity.map(Scene.init) ?? Scene(stage) }
 
     static func message(for scene: Scene) -> Text {
         switch scene {
@@ -138,20 +157,10 @@ private struct TripPlanningWaitLayout: View {
 }
 
 #if DEBUG
+    /// The production sequence: the planner's status line, then the scenes on a timer.
     struct TripProcessingActivityPreview: View {
-        @State private var activity: PlanningActivity?
-
         var body: some View {
-            TripProcessingView(advances: false, activity: activity)
-                .task {
-                    let scenes: [PlanningActivity] = [.weather, .luna, .openingHours, .travelTimes]
-                    var index = 0
-                    while !Task.isCancelled {
-                        guard (try? await Task.sleep(for: .seconds(2.8))) != nil, !Task.isCancelled else { return }
-                        activity = scenes[index]
-                        index = (index + 1) % scenes.count
-                    }
-                }
+            TripProcessingView(messageOverride: "Checking candidate schedules…")
         }
     }
 

@@ -66,9 +66,6 @@ struct AddPlacesView: View {
                     .disabled(selected.count < minimum)
                     .accessibilityIdentifier("addPlacesNext")
             }
-            .padding(20)
-            .frame(maxWidth: 640, alignment: .leading)
-            .frame(maxWidth: .infinity)
         }
         .navigationTitle("Add Specific Place")
         .navigationBarTitleDisplayMode(.inline)

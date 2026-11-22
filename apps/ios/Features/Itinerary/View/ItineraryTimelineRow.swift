@@ -55,7 +55,7 @@ struct ItineraryTimelineRow: View {
                 if let nextStop {
                     Label {
                         if orderingOnly {
-                            Text(ItineraryFormatting.drivingEstimate(nextStop) + (nextDistance.map { " · " + $0 } ?? ""))
+                            Text(ItineraryFormatting.drivingEstimate(nextStop, showsApproximation: false) + (nextDistance.map { " · " + $0 } ?? ""))
                         } else {
                             let minutes = String(localized: "\(nextStop.travelSeconds / 60) min")
                             Text(minutes + (nextDistance.map { " · " + $0 } ?? ""))

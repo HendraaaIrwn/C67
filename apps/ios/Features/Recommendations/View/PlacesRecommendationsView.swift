@@ -197,9 +197,6 @@ struct PlacesRecommendationsView: View {
                     .disabled(selected.count < minimumSelection)
                     .accessibilityIdentifier("recommendationsNext")
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity)
         }
         .sheet(isPresented: $showsSelected) {
             SelectedPlacesView(existing: [], selected: selectedPlaces,
