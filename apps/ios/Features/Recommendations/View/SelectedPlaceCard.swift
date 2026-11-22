@@ -17,7 +17,7 @@ struct SelectedPlaceCard: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            PlaceThumbnail(imageName: nil, size: 76, systemImage: detail?.poiPresentation?.symbol ?? "mappin.and.ellipse",
+            PlaceThumbnail(imageName: detail?.previewImage, size: 76, systemImage: detail?.poiPresentation?.symbol ?? "mappin.and.ellipse",
                            placeholderBackground: AppColor.surface)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: place.name)

@@ -511,7 +511,7 @@ final class PocketEngineUITests: XCTestCase {
             let lookup = app.buttons.matching(identifier: "Search for a place").allElementsBoundByIndex.first(where: \.isHittable)
             let openLookup = try XCTUnwrap(lookup)
             openLookup.tap()
-            let search = app.textFields["addPlacesSearch"]
+            let search = app.searchFields.firstMatch
             XCTAssertTrue(search.waitForExistence(timeout: 5))
             search.tap()
             search.typeText("Taman Bendera Pusaka")

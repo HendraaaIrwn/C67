@@ -26,10 +26,13 @@ struct PlacesRecommendationsView: View {
     @State private var location = PlanningLocation()
     @Environment(\.openURL) private var openURL
     @State private var showsSelected = false
-    @State private var searchAfterDismiss = false
     @State private var retryTask: Task<Void, Never>?
     @State private var showsOriginSearch = false
     @State private var rejectedSelectionCount = 0
+    @State private var showsFoundIntro = false
+    @State private var foundIntroTask: Task<Void, Never>?
+
+    private var showsProcessing: Bool { isLoading && batch.places.isEmpty }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var canLoadRecommendations: Bool { !requiresOrigin || origin != nil }
@@ -52,8 +55,7 @@ struct PlacesRecommendationsView: View {
                             .accessibilityAddTraits(.isHeader)
                         // Selection summary and what's still needed sit with the list; the footer keeps one action.
                         if canLoadRecommendations {
-                            Label("Pull down to refresh recommendations", systemImage: "arrow.down")
-                                .labelStyle(PullHintLabelStyle())
+                            Text("Pull down to refresh recommendations")
                                 .font(.footnote)
                                 .foregroundStyle(AppColor.secondaryText)
                                 .padding(.top, 2)
@@ -160,15 +162,31 @@ struct PlacesRecommendationsView: View {
             }
         }
         .overlay {
-            if isLoading && batch.places.isEmpty {
+            if showsProcessing {
                 RecommendationsProcessingView()
+            } else if showsFoundIntro {
+                RecommendationsFoundView()
+                    .transition(reduceMotion ? .opacity
+                        : .asymmetric(insertion: .opacity,
+                                      removal: .opacity.combined(with: .scale(scale: 1.04)).combined(with: .offset(y: -16))))
+            }
+        }
+        .onChange(of: showsProcessing) { wasProcessing, isProcessing in
+            // Only the first search, shown full screen, hands off through "Here's what we found".
+            guard wasProcessing, !isProcessing, error == nil, !batch.places.isEmpty else { return }
+            foundIntroTask?.cancel()
+            showsFoundIntro = true
+            foundIntroTask = Task {
+                try? await Task.sleep(for: .seconds(reduceMotion ? 1.2 : 1.8))
+                guard !Task.isCancelled else { return }
+                withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .smooth(duration: 0.5)) { showsFoundIntro = false }
             }
         }
         .refreshable {
             if canLoadRecommendations { await refresh() }
         }
         .accessibilityAction(named: "Refresh recommendations") { retry() }
-        .onDisappear { location.cancel(); retryTask?.cancel(); cancel() }
+        .onDisappear { location.cancel(); retryTask?.cancel(); foundIntroTask?.cancel(); cancel() }
         .background(AppColor.canvas.ignoresSafeArea())
         .bottomActionBar {
             VStack(spacing: 10) {
@@ -183,15 +201,9 @@ struct PlacesRecommendationsView: View {
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
         }
-        .sheet(isPresented: $showsSelected, onDismiss: {
-            if searchAfterDismiss {
-                searchAfterDismiss = false
-                findPlace()
-            }
-        }) {
+        .sheet(isPresented: $showsSelected) {
             SelectedPlacesView(existing: [], selected: selectedPlaces,
-                               details: Dictionary(selected.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }),
-                               searchForPlace: { searchAfterDismiss = true; showsSelected = false })
+                               details: Dictionary(selected.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }))
         }
         .fullScreenCover(isPresented: $showsOriginSearch) {
             PlanningSearchSheet(near: origin, title: "Starting point") { place in
@@ -303,16 +315,6 @@ struct PlacesRecommendationsView: View {
         guard !isLoading, canLoadRecommendations else { return }
         retryTask?.cancel()
         retryTask = Task { await refresh() }
-    }
-}
-
-/// Small leading arrow tucked close to the hint text.
-private struct PullHintLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 4) {
-            configuration.icon.imageScale(.small)
-            configuration.title
-        }
     }
 }
 
