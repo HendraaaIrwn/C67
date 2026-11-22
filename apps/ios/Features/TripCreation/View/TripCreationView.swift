@@ -18,6 +18,8 @@ struct TripCreationView: View {
     let openPocketSettings: (() -> Void)?
     @State private var isRunningOperation = false
     @State private var operation: Task<Void, Never>?
+    @State private var showsReady = false
+    @State private var readyTask: Task<Void, Never>?
     @State private var showsStartingPointSearch = false
     @State private var scheduleOptions: ScheduleOptions?
     @State private var showsScheduleDetails = false
@@ -35,26 +37,35 @@ struct TripCreationView: View {
             screen(presenter.root)
                 .navigationDestination(for: TripCreationRoute.self) { screen($0) }
         }
-        .fullScreenCover(isPresented: Binding(get: { presenter.isProcessing }, set: { _ in })) {
-            ZStack(alignment: .bottom) {
-                TripProcessingView(advances: false, messageOverride: presenter.planning.progress,
-                                   activity: presenter.planning.activity)
-                if presenter.planning.canCancelPlanning {
-                    Button("Cancel planning", role: .destructive) {
-                        operation?.cancel()
-                        Task { _ = await presenter.planning.cancelPlanning() }
+        .fullScreenCover(isPresented: Binding(get: { presenter.isProcessing || showsReady }, set: { _ in })) {
+            TripProcessingView(advances: false, messageOverride: presenter.planning.progress,
+                               activity: presenter.planning.activity, isReady: showsReady)
+                .animation(.smooth(duration: 0.4), value: showsReady)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if !showsReady {
+                        // Leaving keeps the request running on this device; without on-device planning it just closes.
+                        VStack {
+                            QuestionPrimaryButton(presenter.planning.supportsOnDevicePlanning ? "Continue Later" : "Cancel") {
+                                operation?.cancel(); dismiss()
+                            }
+                            .accessibilityIdentifier("tripProcessingContinueLater")
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
+                        .frame(maxWidth: 640)
                     }
-                    .buttonStyle(.bordered)
-                    .padding(.bottom, 78)
                 }
-                Button { operation?.cancel(); dismiss() } label: {
-                    Text(presenter.planning.supportsOnDevicePlanning ? "Continue later" : "Cancel")
-                        .frame(minWidth: 44, minHeight: 44)
-                }
-                .buttonStyle(.bordered)
-                .padding(20)
+                .interactiveDismissDisabled()
+        }
+        .onChange(of: presenter.isProcessing) { wasProcessing, isProcessing in
+            // A finished plan lands on review; hold the cover on "All set!" for a beat before revealing it.
+            guard wasProcessing, !isProcessing, presenter.route == .review else { return }
+            showsReady = true
+            readyTask?.cancel()
+            readyTask = Task {
+                try? await Task.sleep(for: .seconds(1.6))
+                showsReady = false
             }
-            .interactiveDismissDisabled()
         }
         .interactiveDismissDisabled(presenter.isProcessing || presenter.planning.isBusy)
         .onChange(of: presenter.planning.sessionGeneration) { _, _ in
