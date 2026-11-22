@@ -30,6 +30,7 @@ struct PlacesRecommendationsView: View {
     @State private var retryTask: Task<Void, Never>?
     @State private var showsOriginSearch = false
     @State private var rejectedSelectionCount = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var canLoadRecommendations: Bool { !requiresOrigin || origin != nil }
 
@@ -49,26 +50,16 @@ struct PlacesRecommendationsView: View {
                         Text("List of \(Text("Places").foregroundStyle(AppColor.accent))")
                             .font(.title.bold())
                             .accessibilityAddTraits(.isHeader)
-                        // The selection summary sits with the list it describes; the footer keeps one action.
-                        HStack(spacing: 6) {
-                            Text("\(selected.count) places selected")
+                        // Selection summary and what's still needed sit with the list; the footer keeps one action.
+                        if canLoadRecommendations {
+                            Label("Pull down to refresh recommendations", systemImage: "arrow.down")
+                                .labelStyle(PullHintLabelStyle())
+                                .font(.footnote)
                                 .foregroundStyle(AppColor.secondaryText)
-                                .contentTransition(.numericText())
-                                .animation(.snappy, value: selected.count)
-                            Text(verbatim: "·")
-                                .foregroundStyle(AppColor.secondaryText)
-                                .accessibilityHidden(true)
-                            Button("My Places") { showsSelected = true }
-                                .fontWeight(.semibold)
+                                .padding(.top, 2)
                         }
-                        .font(.subheadline)
                     }
                     Spacer(minLength: 8)
-                    Button("Refresh", systemImage: "arrow.clockwise", action: retry)
-                        .labelStyle(.iconOnly)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .disabled(isLoading || !canLoadRecommendations)
-                        .accessibilityIdentifier("refreshRecommendations")
                 }
 
                 if requiresOrigin && origin == nil {
@@ -130,13 +121,17 @@ struct PlacesRecommendationsView: View {
                         Button("Search for a place", action: findPlace)
                     }
                 }
-                LazyVStack(spacing: 10) {
-                    ForEach(batch.places) { item in
-                        RecommendationPlaceRow(item: item, userLocation: requiresOrigin ? origin : (usesDeviceLocation ? location.point : previewLocation), isSelected: selectedIDs.contains(item.id),
-                                               isExisting: false,
-                                               isDisabled: false, isLocked: isLocked(item)) {
-                        isLocked(item) ? rejectedSelectionCount += 1 : toggle(item)
-                    }
+                if !batch.places.isEmpty {
+                    // Like the interests question: "Your picks" appears with the first pick, above the suggestions.
+                    // One ForEach with stable IDs, so a picked card slides up instead of fading between sections.
+                    LazyVStack(spacing: 10) {
+                        ForEach(listItems) { entry in
+                            switch entry {
+                            case .picksHeader(let count): picksHeader(count: count)
+                            case .suggestionsHeader(let spaced): suggestionsHeader.padding(.top, spaced ? 8 : 0)
+                            case .place(let item): row(item)
+                            }
+                        }
                     }
                 }
                 if batch.synthetic {
@@ -172,12 +167,11 @@ struct PlacesRecommendationsView: View {
         .refreshable {
             if canLoadRecommendations { await refresh() }
         }
+        .accessibilityAction(named: "Refresh recommendations") { retry() }
         .onDisappear { location.cancel(); retryTask?.cancel(); cancel() }
         .background(AppColor.canvas.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .bottomActionBar {
             VStack(spacing: 10) {
-                PlaceSelectionStatus(count: selected.count, minimum: minimumSelection, maximum: maximumSelection,
-                                     rejectedCount: rejectedSelectionCount, alignment: .center)
                 if let limit = maximumSelection, selected.count > limit {
                     Button("Review My Places") { showsSelected = true }
                 }
@@ -188,7 +182,6 @@ struct PlacesRecommendationsView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
-            .background(AppColor.surface)
         }
         .sheet(isPresented: $showsSelected, onDismiss: {
             if searchAfterDismiss {
@@ -211,6 +204,92 @@ struct PlacesRecommendationsView: View {
         .tint(AppColor.accent)
     }
 
+    private func row(_ item: RecommendedPlace) -> some View {
+        RecommendationPlaceRow(item: item, userLocation: requiresOrigin ? origin : (usesDeviceLocation ? location.point : previewLocation),
+                               isSelected: selectedIDs.contains(item.id), isExisting: false,
+                               isDisabled: false, isLocked: isLocked(item)) {
+            if isLocked(item) {
+                rejectedSelectionCount += 1
+            } else {
+                withAnimation(reduceMotion ? nil : .spring(duration: 0.5, bounce: 0.2)) { toggle(item) }
+            }
+        }
+    }
+
+    /// "Your picks" with its count and what's still needed, and Manage for My Places.
+    private func picksHeader(count: Int) -> some View {
+        let note: LocalizedStringKey? = count < minimumSelection ? "\(minimumSelection - count) more"
+            : (maximumSelection.map { count >= $0 } == true ? "Full" : nil)
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("Your picks").font(.headline).accessibilityAddTraits(.isHeader)
+            Text(count, format: .number)
+                .font(.headline)
+                .foregroundStyle(AppColor.secondaryText)
+                .contentTransition(.numericText(value: Double(count)))
+                .accessibilityLabel(Text("\(count) places selected"))
+                .accessibilityIdentifier("placesSelectedCount")
+            if let note {
+                (Text(verbatim: "· ") + Text(note))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppColor.secondaryText)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("placeSelectionStatus")
+            }
+            Spacer(minLength: 8)
+            Button { showsSelected = true } label: {
+                Text("Manage").font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+            }
+            .accessibilityLabel(Text("My Places"))
+            .accessibilityIdentifier("recommendationsMyPlaces")
+        }
+        .padding(.horizontal, 4)
+        .keyframeAnimator(initialValue: CGFloat.zero, trigger: rejectedSelectionCount) { header, offset in
+            header.offset(x: reduceMotion ? 0 : offset)
+        } keyframes: { _ in
+            KeyframeTrack {
+                SpringKeyframe(CGFloat(-5), duration: 0.07)
+                SpringKeyframe(CGFloat(5), duration: 0.07)
+                SpringKeyframe(CGFloat(-3), duration: 0.07)
+                SpringKeyframe(CGFloat.zero, duration: 0.12)
+            }
+        }
+        .sensoryFeedback(.warning, trigger: rejectedSelectionCount)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: count)
+    }
+
+    private var suggestionsHeader: some View {
+        Text("Suggestions")
+            .font(.headline)
+            .accessibilityAddTraits(.isHeader)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(.horizontal, 4)
+    }
+
+    private enum ListItem: Identifiable {
+        case picksHeader(Int), suggestionsHeader(spaced: Bool), place(RecommendedPlace)
+
+        var id: String {
+            switch self {
+            case .picksHeader: "header-picks"
+            case .suggestionsHeader: "header-suggestions"
+            case .place(let item): item.id.uuidString
+            }
+        }
+    }
+
+    private var listItems: [ListItem] {
+        let picked = orderedPlaces.filter { selectedIDs.contains($0.id) }
+        let rest = orderedPlaces.filter { !selectedIDs.contains($0.id) }
+        return (picked.isEmpty ? [] : [.picksHeader(picked.count)] + picked.map(ListItem.place))
+            + [.suggestionsHeader(spaced: !picked.isEmpty)] + rest.map(ListItem.place)
+    }
+
+    /// Picked places rise to the top in the order they were picked; the rest keep the recommended order.
+    private var orderedPlaces: [RecommendedPlace] {
+        let picked = selected.compactMap { choice in batch.places.first { $0.id == choice.id } }
+        return picked + batch.places.filter { !selectedIDs.contains($0.id) }
+    }
+
     private var nextTitle: LocalizedStringKey {
         countsInNextButton && selected.count >= minimumSelection ? "Plan with \(selected.count) places" : "Next"
     }
@@ -227,31 +306,59 @@ struct PlacesRecommendationsView: View {
     }
 }
 
-/// One line under the selection count. Readiness is reached at the minimum; the maximum
-/// is mentioned only when one spot is left or the selection is full, so it never reads as a target.
+/// Small leading arrow tucked close to the hint text.
+private struct PullHintLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.icon.imageScale(.small)
+            configuration.title
+        }
+    }
+}
+
+/// "N places selected", followed by what's still needed: the minimum until it's met, then nothing
+/// (the enabled primary button says "ready"), and a note only once the selection is full.
+/// Shakes with a warning haptic when a tap is refused because the selection is full.
 struct PlaceSelectionStatus: View {
     let count: Int
     let minimum: Int
     let maximum: Int?
     var rejectedCount = 0
-    var alignment: Alignment = .leading
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var isFull: Bool { maximum.map { count >= $0 } ?? false }
+    private var guidance: Text? { Self.guidance(count: count, minimum: minimum, maximum: maximum) }
+
+    static func guidance(count: Int, minimum: Int, maximum: Int?) -> Text? {
+        if count < minimum {
+            return count == 0 ? Text("Pick at least \(minimum)") : Text("Pick \(minimum - count) more")
+        }
+        if let maximum, count >= maximum { return Text("That's the max") }
+        return nil
+    }
+
+    /// Changes only when the guidance line itself changes, so its fade runs once per state.
+    private var guidanceState: Int {
+        count < minimum ? count : (maximum.map { count >= $0 } == true ? -1 : -2)
+    }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            if count >= minimum, !isFull {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .accessibilityHidden(true)
+        HStack(spacing: 6) {
+            Text("\(count) places selected")
+                .foregroundStyle(AppColor.secondaryText)
+                .contentTransition(.numericText())
+                .accessibilityIdentifier("placesSelectedCount")
+            if let guidance {
+                Text(verbatim: "·").foregroundStyle(AppColor.secondaryText).accessibilityHidden(true)
+                guidance
+                    .fontWeight(.semibold)
+                    .foregroundStyle(AppColor.primaryText)
+                    .contentTransition(.numericText())
+                    .transition(.opacity)
+                    .accessibilityIdentifier("placeSelectionStatus")
             }
-            message
-                .foregroundStyle(isFull ? AppColor.primaryText : AppColor.secondaryText)
         }
-        .font(.footnote)
-        .multilineTextAlignment(alignment == .center ? .center : .leading)
-        .frame(maxWidth: .infinity, alignment: alignment)
+        .animation(.snappy, value: count)
+        .animation(.snappy, value: guidanceState)
         .keyframeAnimator(initialValue: CGFloat.zero, trigger: rejectedCount) { line, offset in
             line.offset(x: reduceMotion ? 0 : offset)
         } keyframes: { _ in
@@ -263,19 +370,6 @@ struct PlaceSelectionStatus: View {
             }
         }
         .sensoryFeedback(.warning, trigger: rejectedCount)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("placeSelectionStatus")
-    }
-
-    private var message: Text {
-        if count < minimum {
-            return count == 0 ? Text("Pick at least \(minimum) places") : Text("Pick \(minimum - count) more to start")
-        }
-        if let maximum {
-            if count >= maximum { return Text("That's the most for one trip. Remove one to swap.") }
-            if count == maximum - 1 { return Text("Ready to plan · 1 spot left") }
-        }
-        return Text("Ready to plan · Add more if you like")
     }
 }
 
@@ -338,12 +432,23 @@ private struct OriginPrompt: View {
         .animation(.snappy, value: permissionDenied)
     }
 
+    /// While locating, the button keeps its size and colour: a small spinner takes the icon's fixed slot
+    /// and taps are ignored instead of greying the button out.
     private var deviceLocationButton: some View {
         Button(action: permissionDenied ? openSettings : useCurrentLocation) {
             HStack(spacing: 8) {
-                if isRequesting { ProgressView().tint(AppColor.onBrand) }
-                else { Image(systemName: permissionDenied ? "gear" : "location.fill") }
+                ZStack {
+                    if isRequesting {
+                        ProgressView().controlSize(.small).tint(AppColor.onBrand)
+                            .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                    } else {
+                        Image(systemName: permissionDenied ? "gear" : "location.fill")
+                            .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                    }
+                }
+                .frame(width: 22, height: 22)
                 Text(isRequesting ? "Finding your location…" : permissionDenied ? "Open Settings" : "Use current location")
+                    .contentTransition(.opacity)
             }
             .frame(maxWidth: .infinity)
         }
@@ -351,7 +456,8 @@ private struct OriginPrompt: View {
         .buttonBorderShape(.capsule)
         .controlSize(.large)
         .tint(AppColor.brand)
-        .disabled(isRequesting)
+        .allowsHitTesting(!isRequesting)
+        .accessibilityAddTraits(isRequesting ? .updatesFrequently : [])
     }
 }
 

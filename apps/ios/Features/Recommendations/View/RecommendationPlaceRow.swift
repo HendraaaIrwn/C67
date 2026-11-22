@@ -81,7 +81,6 @@ struct RecommendationPlaceRow: View {
                 .contentTransition(.symbolEffect(.replace.magic(fallback: .downUp.byLayer)))
         }
         .frame(width: 30, height: 30)
-        .scaleEffect(isChecked ? 1 : 0.93)
         .frame(width: 44, height: 44)
         .accessibilityHidden(true)
     }

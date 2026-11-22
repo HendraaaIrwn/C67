@@ -25,7 +25,7 @@ struct SelectedPlacesView: View {
                     )
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 14) {
+                        LazyVStack(spacing: 10) {
                             ForEach(existing) { place in
                                 SelectedPlaceCard(place: place, detail: details[place.id], remove: nil)
                             }

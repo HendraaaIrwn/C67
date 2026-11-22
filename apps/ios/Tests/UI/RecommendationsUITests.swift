@@ -71,13 +71,16 @@ final class RecommendationsUITests: XCTestCase {
         openMockCreation(app, recommendations: true)
         XCTAssertTrue(app.navigationBars["Recommendations"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["Search for a place"].exists)
-        XCTAssertTrue(app.staticTexts["0 places selected"].exists)
+        // My Places (and its search) is reached through Manage once something is picked.
+        XCTAssertFalse(app.buttons["My Places"].exists)
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recommendation-")).firstMatch.tap()
+        XCTAssertTrue(app.buttons["My Places"].waitForExistence(timeout: 5))
         app.buttons["My Places"].tap()
         let search = app.buttons["selectedPlacesSearch"]
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.tap()
         XCTAssertTrue(app.textFields["addPlacesSearch"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["0 places selected"].exists)
+        XCTAssertTrue(app.staticTexts["1 places selected"].exists)
     }
 
     @MainActor func testSelectedPlacesRemoveButtonHasUsableTarget() {
@@ -122,18 +125,24 @@ final class RecommendationsUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Recommendations"].waitForExistence(timeout: 10))
         let candidate = app.buttons["Synthetic tourist attraction 1"]
         XCTAssertTrue(candidate.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["0 places selected"].exists)
+        XCTAssertFalse(app.staticTexts["Your picks"].exists)
         candidate.tap()
         XCTAssertTrue(app.staticTexts["1 places selected"].exists)
         app.buttons["My Places"].tap()
         XCTAssertTrue(app.navigationBars["Places"].waitForExistence(timeout: 5))
         app.buttons["Remove Synthetic tourist attraction 1"].tap()
         app.buttons["Close"].tap()
-        XCTAssertTrue(app.staticTexts["0 places selected"].waitForExistence(timeout: 5))
+        let picks = app.staticTexts["Your picks"]
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: picks)
+        waitForExpectations(timeout: 5)
         // The trip needs at least three places before it can be planned.
-        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recommendation-"))
-        for index in 0 ..< 3 { rows.element(boundBy: index).tap() }
-        XCTAssertTrue(app.staticTexts["3 places selected"].waitForExistence(timeout: 5))
+        // Picked places move up into "Your picks", so always take the first suggestion still unselected.
+        let unselected = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND value CONTAINS %@",
+                                                          "recommendation-", "Not selected"))
+        for count in 1 ... 3 {
+            unselected.firstMatch.tap()
+            XCTAssertTrue(app.staticTexts["\(count) places selected"].waitForExistence(timeout: 5))
+        }
         app.buttons["recommendationsNext"].tap()
         XCTAssertTrue(app.buttons["Next"].waitForExistence(timeout: 5))
         app.buttons["Next"].tap()
@@ -160,13 +169,16 @@ final class RecommendationsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--recommendations-preview", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["0 places selected"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["My Places"].isHittable)
+        let first = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recommendation-")).firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertTrue(first.isHittable)
         XCTAssertTrue(app.buttons["recommendationsNext"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "PLACES LISTS - Accessibility XXXL"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+        first.tap()
+        XCTAssertTrue(app.buttons["My Places"].waitForExistence(timeout: 5))
         app.buttons["My Places"].tap()
         XCTAssertTrue(app.navigationBars["Places"].waitForExistence(timeout: 5))
         app.buttons["Close"].tap()

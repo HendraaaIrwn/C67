@@ -60,43 +60,46 @@ struct AddPlacesView: View {
         .scrollDismissesKeyboard(.interactively)
         .background(AppColor.canvas)
         .safeAreaInset(edge: .top, spacing: 0) {
-            HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-                TextField("Search place", text: $query, axis: .vertical)
-                    .lineLimit(1 ... 2)
-                    .focused($searchFocused)
-                    .autocorrectionDisabled()
-                    .submitLabel(.search)
-                    .onSubmit { searchFocused = false }
-                    .onChange(of: query) { _, value in
-                        if value.contains("\n") {
-                            query = value.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-                            searchFocused = false
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                    TextField("Search place", text: $query, axis: .vertical)
+                        .lineLimit(1 ... 2)
+                        .focused($searchFocused)
+                        .autocorrectionDisabled()
+                        .submitLabel(.search)
+                        .onSubmit { searchFocused = false }
+                        .onChange(of: query) { _, value in
+                            if value.contains("\n") {
+                                query = value.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                                searchFocused = false
+                            }
                         }
+                        .accessibilityIdentifier("addPlacesSearch")
+                    if !query.isEmpty {
+                        Button("Clear search", systemImage: "xmark.circle.fill") { query = "" }
+                            .labelStyle(.iconOnly)
+                            .frame(minWidth: 44, minHeight: 44)
                     }
-                    .accessibilityIdentifier("addPlacesSearch")
-                if !query.isEmpty {
-                    Button("Clear search", systemImage: "xmark.circle.fill") { query = "" }
-                        .labelStyle(.iconOnly)
-                        .frame(minWidth: 44, minHeight: 44)
                 }
+                .padding(.leading, 14)
+                .padding(.trailing, 4)
+                .frame(minHeight: 48)
+                .background(.regularMaterial, in: .capsule)
+                .padding(.horizontal, 12)
+                PlaceSelectionStatus(count: selected.count, minimum: 3, maximum: maximumSelection,
+                                     rejectedCount: rejectedSelectionCount)
+                    .font(.subheadline)
+                    .padding(.horizontal, 16)
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 4)
-            .frame(minHeight: 48)
-            .background(.regularMaterial, in: .capsule)
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .frame(maxWidth: 640)
             .frame(maxWidth: .infinity)
             .background(AppColor.canvas)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .bottomActionBar {
             VStack(alignment: .leading, spacing: 16) {
-                Text("\(selected.count) places selected")
-                    .accessibilityIdentifier("placesSelectedCount")
-                PlaceSelectionStatus(count: selected.count, minimum: 3, maximum: maximumSelection,
-                                     rejectedCount: rejectedSelectionCount)
                 if let limit = maximumSelection, selected.count > limit {
                     Button("Review My Places") { showsSelected = true }
                 }
@@ -107,7 +110,6 @@ struct AddPlacesView: View {
             .padding(20)
             .frame(maxWidth: 640, alignment: .leading)
             .frame(maxWidth: .infinity)
-            .background(AppColor.surface)
         }
         .navigationTitle("Add Specific Place")
         .navigationBarTitleDisplayMode(.inline)

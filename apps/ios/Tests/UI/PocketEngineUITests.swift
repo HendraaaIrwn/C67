@@ -16,7 +16,7 @@ final class PocketEngineUITests: XCTestCase {
         let useLocation = app.buttons["Use current location"]
         XCTAssertTrue(useLocation.waitForExistence(timeout: 5))
         XCTAssertFalse(app.alerts.firstMatch.exists)
-        XCTAssertFalse(app.buttons["refreshRecommendations"].isEnabled)
+        XCTAssertFalse(app.staticTexts["Pull down to refresh recommendations"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Recommendations starting point"
         screenshot.lifetime = .keepAlways
