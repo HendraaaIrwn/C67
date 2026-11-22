@@ -72,25 +72,18 @@ struct PlacesRecommendationsView: View {
                 }
 
                 if requiresOrigin && origin == nil {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Choose a starting point to find nearby places.")
-                        if location.isRequesting { ProgressView("Finding your location…") }
-                        else if usesDeviceLocation {
-                            if location.permissionDenied {
-                                Text("Location access is off").foregroundStyle(.secondary)
-                                Button("Open Settings") {
-                                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                                }
-                            } else if location.error != nil {
-                                Text("Couldn’t get your location").foregroundStyle(.secondary)
-                            }
-                            Button("Use current location") { location.request() }
-                        }
-                        Button("Choose starting point") {
-                            location.cancel()
-                            showsOriginSearch = true
-                        }
-                    }.font(.footnote)
+                    OriginPrompt(isRequesting: location.isRequesting,
+                                 permissionDenied: usesDeviceLocation && location.permissionDenied,
+                                 failed: usesDeviceLocation && location.error != nil,
+                                 offersDeviceLocation: usesDeviceLocation,
+                                 useCurrentLocation: { location.request() },
+                                 openSettings: {
+                                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                                 },
+                                 chooseStartingPoint: {
+                                     location.cancel()
+                                     showsOriginSearch = true
+                                 })
                 } else if !requiresOrigin && usesDeviceLocation && location.point == nil {
                     if location.isRequesting {
                         Label("Finding your location…", systemImage: "location")
@@ -299,3 +292,107 @@ struct PlaceSelectionStatus: View {
         RecommendationsDesignPreview(addedCount: 3).preferredColorScheme(.dark)
     }
 #endif
+
+// MARK: - Starting point prompt
+
+/// Shown before recommendations can load: the list needs a starting point to measure "nearby".
+private struct OriginPrompt: View {
+    let isRequesting: Bool
+    let permissionDenied: Bool
+    let failed: Bool
+    let offersDeviceLocation: Bool
+    let useCurrentLocation: () -> Void
+    let openSettings: () -> Void
+    let chooseStartingPoint: () -> Void
+
+    private var statusText: LocalizedStringKey? {
+        if permissionDenied { return "Location access is off. Turn it on in Settings or choose a starting point." }
+        if failed { return "Couldn’t get your location. Try again or choose a starting point." }
+        return nil
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            OriginEmblem(isRequesting: isRequesting, permissionDenied: permissionDenied)
+                .accessibilityHidden(true)
+            VStack(spacing: 6) {
+                Text("Where does your trip start?").font(.title3.bold())
+                Text(statusText ?? "Choose a starting point to find nearby places.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+            }
+            VStack(spacing: 6) {
+                if offersDeviceLocation { deviceLocationButton }
+                Button("Choose starting point", action: chooseStartingPoint)
+                    .font(.body.weight(.semibold))
+                    .tint(AppColor.accent)
+                    .frame(minHeight: 44)
+            }
+            .padding(.horizontal, 24)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 56)
+        .animation(.snappy, value: isRequesting)
+        .animation(.snappy, value: permissionDenied)
+    }
+
+    private var deviceLocationButton: some View {
+        Button(action: permissionDenied ? openSettings : useCurrentLocation) {
+            HStack(spacing: 8) {
+                if isRequesting { ProgressView().tint(AppColor.onBrand) }
+                else { Image(systemName: permissionDenied ? "gear" : "location.fill") }
+                Text(isRequesting ? "Finding your location…" : permissionDenied ? "Open Settings" : "Use current location")
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
+        .tint(AppColor.brand)
+        .disabled(isRequesting)
+    }
+}
+
+/// A pin floating over its shadow inside two soft discs; it bobs faster while locating.
+/// Reduce Motion and denied access show it at rest.
+private struct OriginEmblem: View {
+    let isRequesting: Bool
+    let permissionDenied: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            Circle().fill(AppColor.accent.opacity(0.08)).frame(width: 132, height: 132)
+            Circle().fill(AppColor.accent.opacity(0.12)).frame(width: 92, height: 92)
+            if permissionDenied {
+                Image(systemName: "location.slash.fill")
+                    .font(.system(size: 36, weight: .semibold))
+                    .foregroundStyle(AppColor.accent)
+                    .transition(.scale.combined(with: .opacity))
+            } else if reduceMotion {
+                pin(lift: 0.5)
+            } else {
+                TimelineView(.animation) { context in
+                    let speed = isRequesting ? 4.0 : 1.6
+                    pin(lift: (sin(context.date.timeIntervalSinceReferenceDate * speed) + 1) / 2)
+                }
+            }
+        }
+        .frame(width: 200, height: 200)
+    }
+
+    /// `lift` runs 0 (resting) to 1 (highest); the shadow shrinks and fades as the pin rises.
+    private func pin(lift: Double) -> some View {
+        ZStack {
+            Ellipse().fill(AppColor.accent.opacity(0.35 - 0.2 * lift))
+                .frame(width: 28 - 12 * lift, height: 8 - 3 * lift)
+                .offset(y: 22)
+            Image(systemName: "mappin")
+                .font(.system(size: 38, weight: .semibold))
+                .foregroundStyle(AppColor.accent)
+                .offset(y: -4 - 14 * lift)
+        }
+    }
+}
