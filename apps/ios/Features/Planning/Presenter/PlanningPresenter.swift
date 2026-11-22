@@ -48,7 +48,7 @@ final class PlanningPresenter {
     private(set) var connectionError: String?
     private(set) var isSavingConnection = false
     var openTripID: UUID?
-    private var tripToStartID: UUID?
+    private(set) var tripToStartID: UUID?
     private let interactor: PlanningInteractor
     private var generation = 0
     private var ignoresPreviousPendingJob = false

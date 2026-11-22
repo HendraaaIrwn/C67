@@ -44,7 +44,10 @@ struct ItineraryListView: View {
     var editTitle: (() -> Void)?
     var editDeparture: (() -> Void)?
     var startNow: (() -> Void)?
+    var showsSaveAction = true
     var actionTitle = "Save Itinerary"
+    var completionMessage: LocalizedStringKey?
+    var showsPreparation = true
     var allowsEditing = true
     var navigationTitle = "Itinerary"
     var retry: (() -> Void)?
@@ -62,6 +65,7 @@ struct ItineraryListView: View {
     @State private var scrollRange = ScrollRange(offset: 0, maximum: 0)
     @State private var isRetryingHours = false
     @State private var hoursByPlace: [String: PlanningHoursLookup] = [:]
+    @State private var departureForecast = DepartureWeatherLoader()
 
     var body: some View {
         let stops = proposal.stopsWithExperienceEstimates
@@ -70,11 +74,12 @@ struct ItineraryListView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if isExperience {
                     HStack(spacing: 4) {
+                        // The trip name is the page title: Large Title, as in a navigation bar's large title.
                         Text(heading ?? proposal.input.title)
-                            .font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                            .font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
                         if let editTitle {
                             Button(action: editTitle) {
-                                Image(systemName: "pencil").font(.subheadline).frame(width: 44, height: 44)
+                                Image(systemName: "pencil").font(.title3).frame(width: 44, height: 44)
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Edit trip name")
@@ -93,28 +98,27 @@ struct ItineraryListView: View {
                     RecoveryNotice(title: "Itinerary needs attention", message: error,
                                    primary: retry.map { .init(title: retryTitle, perform: $0) })
                 }
-                if let assessment = proposal.scheduleAssessment, proposal.feasible {
-                    if !assessment.unresolved.isEmpty || proposal.hasExperienceTravelFallback ||
-                        !proposal.warnings.isEmpty || !excludedPlaces.isEmpty {
-                        RecoveryNotice(title: "Review before you go",
-                                       message: "A schedule is ready. Check the visit and travel details marked below.",
-                                       icon: "info.circle")
-                        if !assessment.unresolved.isEmpty {
-                            DisclosureGroup("Visits and information to check") {
-                                ForEach(assessment.unresolved, id: \.id) { issue in
-                                    Text(issue.message(in: proposal.input)).font(.footnote)
-                                }
-                            }
-                        }
-                    } else {
-                        Label("Schedule ready", systemImage: "checkmark.circle").font(.subheadline)
-                    }
+                // Planner diagnostics (review, opening hours, trip details, return leg) show in developer builds only.
+                if AppMode.current.showsPlanningDiagnostics, let assessment = proposal.scheduleAssessment, proposal.feasible {
+                    let needsReview = !assessment.unresolved.isEmpty || proposal.hasExperienceTravelFallback ||
+                        !proposal.warnings.isEmpty || !excludedPlaces.isEmpty
+                    ItineraryReviewNotice(needsReview: needsReview,
+                                          issues: assessment.unresolved.map { $0.message(in: proposal.input) })
                 }
 
-                ItineraryDepartureCard(proposal: proposal, weatherAdvice: departureWeather, isDesignPreview: isDesignPreview,
+                ItineraryDepartureCard(proposal: proposal, departureForecast: departureForecast,
+                                       weatherAdvice: departureWeather, isDesignPreview: isDesignPreview,
                                        editDeparture: editDeparture, editEndpoints: isExperience ? editEndpoints : nil)
 
-                if isExperience, lookupHours != nil {
+                if showsPreparation, proposal.feasible, !stops.isEmpty {
+                    ItineraryPreparationCard(
+                        forecast: departureForecast.forecast(for: proposal.input.origin, departure: proposal.estimatedExperienceDeparture),
+                        hoursConflicts: hoursConflicts(in: stops),
+                        hasDefaultTravelTime: proposal.hasExperienceTravelFallback
+                    )
+                }
+
+                if AppMode.current.showsPlanningDiagnostics, allowsEditing, isExperience, lookupHours != nil {
                     DisclosureGroup("Opening hours") {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Regular hours may differ on holidays or for individual activities. Travel and visit times are estimates.")
@@ -197,8 +201,9 @@ struct ItineraryListView: View {
                         .accessibilityIdentifier("itineraryAddPlace")
                 }
 
-                ItineraryMapView(proposal: proposal)
-                if proposal.input.planningEndpoint != nil, let seconds = proposal.returnTravelSeconds {
+                ItineraryMapView(proposal: proposal, showsTripDetails: AppMode.current.showsPlanningDiagnostics)
+                if AppMode.current.showsPlanningDiagnostics, proposal.input.planningEndpoint != nil,
+                   let seconds = proposal.returnTravelSeconds {
                     let destination = proposal.input.enginePreferences?.endPointName ?? "starting point"
                     let action = proposal.input.enginePreferences?.endPointName == nil ? "Return to" : "End at"
                     Label("\(action) \(destination) · \(Int(ceil(Double(seconds) / 60))) min · arrive by \(ItineraryFormatting.time(proposal.finishesAt, zone: proposal.input.timeZone, locale: .current))", systemImage: "arrow.uturn.backward")
@@ -217,7 +222,9 @@ struct ItineraryListView: View {
             .frame(maxWidth: .infinity)
         }
         .accessibilityIdentifier("itineraryList")
-        .safeAreaInset(edge: .bottom, spacing: 0) { itineraryActions(hasStops: !stops.isEmpty) }
+        .bottomActionBar(isVisible: showsSaveAction || startNow != nil) {
+            itineraryActions(hasStops: !stops.isEmpty)
+        }
         .scrollPosition($scrollPosition)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { viewport = $0 }
         .onScrollGeometryChange(for: ScrollRange.self) { geometry in
@@ -231,7 +238,7 @@ struct ItineraryListView: View {
         .onChange(of: stops.map(\.id)) { _, _ in cancelDrag() }
         .task(id: proposal.input.places) {
             guard let lookupHours else { return }
-            for place in proposal.input.places {
+            for place in proposal.input.places where stops.contains(where: { $0.id == place.id }) {
                 guard !Task.isCancelled, let source = place.sourceID, source.hasPrefix("apple:") else { continue }
                 let id = String(source.dropFirst(6))
                 if hoursByPlace[id] == nil {
@@ -248,36 +255,29 @@ struct ItineraryListView: View {
     }
 
     private func itineraryActions(hasStops: Bool) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 8) {
+            if let completionMessage {
+                Label(completionMessage, systemImage: "checkmark.circle.fill")
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+            }
             if let startNow {
-                Button(action: startNow) {
-                    Text("Start your trip today")
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .tint(Color("ItineraryBlue"))
-                .accessibilityIdentifier("itineraryStartNow")
+                Button("Start your trip today", action: startNow)
+                    .buttonStyle(TripPrimaryButtonStyle())
+                    .accessibilityIdentifier("itineraryStartNow")
             }
-            Button(action: save) {
-                HStack {
-                    if isSaving { ProgressView() }
-                    Text(isSaving ? "Please wait…" : actionTitle)
+            if showsSaveAction {
+                Button(action: save) {
+                    HStack {
+                        if isSaving { ProgressView() }
+                        Text(isSaving ? "Please wait…" : actionTitle)
+                    }
                 }
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .contentShape(Rectangle())
+                .buttonStyle(TripPrimaryButtonStyle())
+                .accessibilityIdentifier("Save this trip")
             }
-            .buttonStyle(ItinerarySaveButtonStyle(secondary: startNow != nil))
-            .tint(Color("ItineraryBlue"))
-            .buttonBorderShape(.capsule)
-            .accessibilityIdentifier("Save this trip")
         }
         .disabled(isSaving || !canSave || !proposal.feasible || !hasStops)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-        .frame(maxWidth: 640)
-        .frame(maxWidth: .infinity)
-        .background(AppColor.surface)
     }
 
     private var reorderAnimation: Animation? { reduceMotion ? nil : .snappy(duration: 0.23, extraBounce: 0) }
@@ -446,6 +446,19 @@ struct ItineraryListView: View {
         }
     }
 
+    private func hoursConflicts(in stops: [ScheduledPlanningStop]) -> [String] {
+        stops.compactMap { stop in
+            guard let source = proposal.input.places.first(where: { $0.id == stop.id })?.sourceID,
+                  source.hasPrefix("apple:"), let lookup = hoursByPlace[String(source.dropFirst(6))],
+                  lookup.status == "available", let hours = lookup.hours,
+                  let start = stop.visitStartsAt ?? stop.arrivalAt, let end = stop.departureAt else { return nil }
+            switch hours.match(start: start, end: end) {
+            case .partial, .outside: return stop.name
+            case .within, .unknown: return nil
+            }
+        }
+    }
+
     private func categoryHoursHint(for place: PlanningPlace) -> String {
         guard proposal.scheduleAssessment?.unresolved.contains(where: {
             $0.placeID == place.id && $0.source == EstimatedVisitWindow.source
@@ -456,18 +469,6 @@ struct ItineraryListView: View {
     }
 
     private func addPlace() { edit(nil) }
-}
-
-private struct ItinerarySaveButtonStyle: PrimitiveButtonStyle {
-    let secondary: Bool
-
-    @ViewBuilder func makeBody(configuration: Configuration) -> some View {
-        if secondary {
-            Button(configuration).buttonStyle(.plain).foregroundStyle(Color("ItineraryAction"))
-        } else {
-            Button(configuration).buttonStyle(.borderedProminent)
-        }
-    }
 }
 
 #if DEBUG
@@ -481,3 +482,56 @@ private struct ItinerarySaveButtonStyle: PrimitiveButtonStyle {
             .preferredColorScheme(.dark)
     }
 #endif
+
+/// Developer-only schedule assessment.
+private struct ItineraryReviewNotice: View {
+    let needsReview: Bool
+    let issues: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Schedule diagnostics").font(.headline).accessibilityAddTraits(.isHeader)
+                Spacer()
+                Text(needsReview ? "\(issues.count + 1) to check" : "1 to check")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(needsReview ? .orange : AppColor.accent)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background((needsReview ? Color.orange : AppColor.accent).opacity(0.12), in: .capsule)
+            }
+            .padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                checkRow(symbol: needsReview ? "exclamationmark.circle.fill" : "checkmark.circle.fill",
+                         tint: needsReview ? .orange : .green,
+                         title: needsReview ? "Visit and travel details" : "Schedule ready",
+                         detail: needsReview ? "Some details are marked below." : nil)
+                ForEach(issues, id: \.self) { issue in
+                    Divider().padding(.leading, 48)
+                    checkRow(symbol: "circle", tint: .orange, title: nil, detail: issue)
+                }
+                Divider().padding(.leading, 48)
+                checkRow(symbol: "clock.fill", tint: AppColor.accent, title: "Opening hours",
+                         detail: "Hours can change at any time, especially on holidays. Confirm before you head out.")
+            }
+            .background(AppColor.surface, in: .rect(cornerRadius: 22, style: .continuous))
+        }
+        .accessibilityIdentifier("itineraryReviewNotice")
+    }
+
+    private func checkRow(symbol: String, tint: Color, title: LocalizedStringKey?, detail: String?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Image(systemName: symbol).foregroundStyle(tint).frame(width: 22).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                if let title { Text(title).font(.subheadline.weight(.semibold)) }
+                if let detail {
+                    Text(detail).font(.footnote).foregroundStyle(title == nil ? AppColor.primaryText : AppColor.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .combine)
+    }
+}

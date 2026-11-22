@@ -71,11 +71,13 @@ struct TripHomeRootView: View {
         .onChange(of: accountPresenter?.account?.id) { _, _ in accountChanged() }
         .onChange(of: presenter.openTripID) { _, id in
             if let id {
+                let savedTrip = presenter.trips.first { $0.id == id }
+                let opensTrip = presenter.tripToStartID == id || savedTrip?.plan.usesExperienceFlow != true
                 sheet = nil
                 showsCreation = false
                 creation = nil
                 selectedTab = .trip
-                tripPath = [id]
+                tripPath = opensTrip ? [id] : []
                 presenter.openTripID = nil
             }
         }

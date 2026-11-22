@@ -9,12 +9,17 @@ import C67Domain
 @MainActor @Observable
 final class DepartureWeatherLoader {
     struct Forecast {
+        enum Precipitation: Equatable { case rain, storm }
+
         let temperature: Measurement<UnitTemperature>
         let condition: String
         let symbol: String
+        let precipitation: Precipitation?
         let source: String
         let sourceURL: URL
         let markURL: URL?
+        /// The provider mark for dark or coloured backgrounds, such as the departure card.
+        var markOnDarkURL: URL?
     }
 
     enum ForecastFailure: Error {
@@ -25,11 +30,19 @@ final class DepartureWeatherLoader {
     private(set) var failure: ForecastFailure?
     private(set) var isLoading = false
     private var generation = 0
+    private var origin: PlanningPoint?
+    private var departure: Date?
 
     func clear() { generation += 1; forecast = nil; failure = nil; isLoading = false }
 
+    func forecast(for origin: PlanningPoint, departure: Date?) -> Forecast? {
+        self.origin == origin && self.departure == departure ? forecast : nil
+    }
+
     func load(origin: PlanningPoint, departure: Date) async {
         generation += 1
+        self.origin = origin
+        self.departure = departure
         let ticket = generation
         forecast = nil; failure = nil; isLoading = true
         defer { if ticket == generation { isLoading = false } }
@@ -45,8 +58,14 @@ final class DepartureWeatherLoader {
             try Task.checkCancellation()
             guard ticket == generation else { return }
             guard let hour = hours.first(where: { $0.date <= departure && departure < $0.date.addingTimeInterval(3600) }) else { throw URLError(.resourceUnavailable) }
+            let precipitation: Forecast.Precipitation? = switch hour.condition {
+            case .thunderstorms, .isolatedThunderstorms, .scatteredThunderstorms, .strongStorms, .tropicalStorm, .hurricane: .storm
+            case .rain, .heavyRain, .drizzle, .sunShowers: .rain
+            default: nil
+            }
             forecast = Forecast(temperature: hour.temperature, condition: hour.condition.description, symbol: hour.symbolName,
-                                source: "Apple Weather", sourceURL: attribution.legalPageURL, markURL: attribution.combinedMarkLightURL)
+                                precipitation: precipitation, source: "Apple Weather", sourceURL: attribution.legalPageURL, markURL: attribution.combinedMarkLightURL,
+                                markOnDarkURL: attribution.combinedMarkDarkURL)
         } catch is CancellationError { return }
         catch {
             guard !Task.isCancelled, ticket == generation else { return }
@@ -99,18 +118,28 @@ final class DepartureWeatherLoader {
         }
         guard hourly.temperature_2m.indices.contains(index), hourly.weather_code.indices.contains(index),
               let temperature = hourly.temperature_2m[index], temperature.isFinite, let code = hourly.weather_code[index] else { throw URLError(.cannotParseResponse) }
-        let (condition, symbol): (String, String) = switch code {
-        case 0: ("Clear", "sun.max")
-        case 1 ... 3: ("Cloudy", "cloud")
-        case 45, 48: ("Fog", "cloud.fog")
-        case 51 ... 67, 80 ... 82: ("Rain", "cloud.rain")
-        case 71 ... 77, 85, 86: ("Snow", "cloud.snow")
-        case 95 ... 99: ("Thunderstorms", "cloud.bolt.rain")
-        default: ("Forecast", "cloud.sun")
+        let (condition, symbol, precipitation): (String, String, Forecast.Precipitation?) = switch code {
+        case 0: ("Clear", "sun.max", nil)
+        case 1 ... 3: ("Cloudy", "cloud", nil)
+        case 45, 48: ("Fog", "cloud.fog", nil)
+        case 51 ... 67, 80 ... 82: ("Rain", "cloud.rain", .rain)
+        case 71 ... 77, 85, 86: ("Snow", "cloud.snow", nil)
+        case 95 ... 99: ("Thunderstorms", "cloud.bolt.rain", .storm)
+        default: ("Forecast", "cloud.sun", nil)
         }
         return Forecast(temperature: .init(value: temperature, unit: .celsius), condition: condition, symbol: symbol,
-                        source: "Open-Meteo", sourceURL: URL(string: "https://open-meteo.com/")!, markURL: nil)
+                        precipitation: precipitation, source: "Open-Meteo", sourceURL: URL(string: "https://open-meteo.com/")!, markURL: nil)
     }
+
+    #if DEBUG
+        func useRainFixture(origin: PlanningPoint, departure: Date) {
+            clear()
+            self.origin = origin
+            self.departure = departure
+            forecast = Forecast(temperature: .init(value: 25, unit: .celsius), condition: "Sample rain", symbol: "cloud.rain",
+                                precipitation: .rain, source: "Synthetic fixture", sourceURL: URL(string: "https://fixture.invalid")!, markURL: nil)
+        }
+    #endif
 }
 
 @MainActor @Observable
