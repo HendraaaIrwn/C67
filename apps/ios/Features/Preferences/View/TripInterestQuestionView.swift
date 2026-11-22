@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import C67Domain
 
 /// Multi-select themes and preferences for the first trip question.
@@ -35,16 +36,9 @@ struct TripInterestQuestionView: View {
         } : options.filter { String(localized: $0.option.title).localizedStandardContains(term) }
         QuestionScaffold(title: Text("What sounds \(QuestionTitle.highlight("good")) today?"), contentSpacing: 24, skip: skip) {
             VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Search place types or activities", text: $query)
-                        .accessibilityIdentifier("preferenceSearch")
-                    if !query.isEmpty {
-                        Button("Clear search", systemImage: "xmark.circle.fill") { query = "" }
-                            .labelStyle(.iconOnly)
-                    }
-                }
-                .padding(12).background(AppColor.surface, in: .capsule)
+                NativeSearchBar(text: $query, prompt: String(localized: "Search place types or activities"),
+                                accessibilityIdentifier: "preferenceSearch")
+                    .padding(.horizontal, -8)
                 if term.isEmpty && (!selected.isEmpty || !selection.isEmpty) {
                     HStack {
                         Text("Your interests")
@@ -229,3 +223,49 @@ private extension View {
         .dynamicTypeSize(.accessibility2)
     }
 #endif
+
+/// The system `UISearchBar`, kept in the content under the question title (where `.searchable`
+/// can't go): native field, clear button and Cancel while typing.
+private struct NativeSearchBar: UIViewRepresentable {
+    @Binding var text: String
+    let prompt: String
+    let accessibilityIdentifier: String
+
+    func makeUIView(context: Context) -> UISearchBar {
+        let bar = UISearchBar()
+        bar.searchBarStyle = .minimal
+        bar.placeholder = prompt
+        bar.autocorrectionType = .no
+        bar.returnKeyType = .search
+        bar.delegate = context.coordinator
+        bar.searchTextField.accessibilityIdentifier = accessibilityIdentifier
+        bar.setContentHuggingPriority(.defaultHigh, for: .vertical)
+        return bar
+    }
+
+    func updateUIView(_ bar: UISearchBar, context: Context) {
+        if bar.text != text { bar.text = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, UISearchBarDelegate {
+        @Binding var text: String
+
+        init(text: Binding<String>) { _text = text }
+
+        func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) { text = searchText }
+
+        func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) { searchBar.setShowsCancelButton(true, animated: true) }
+
+        func searchBarTextDidEndEditing(_ searchBar: UISearchBar) { searchBar.setShowsCancelButton(false, animated: true) }
+
+        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) { searchBar.resignFirstResponder() }
+
+        func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
+            text = ""
+            searchBar.text = ""
+            searchBar.resignFirstResponder()
+        }
+    }
+}
