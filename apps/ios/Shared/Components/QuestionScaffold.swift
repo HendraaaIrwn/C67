@@ -37,12 +37,11 @@ struct QuestionScaffold<Content: View, Footer: View>: View {
             .padding(.bottom, 32)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .safeAreaInset(edge: .bottom) {
+        .bottomActionBar {
             if Footer.self != EmptyView.self {
                 footer
                     .padding(.horizontal, 20)
                     .padding(.vertical, 8)
-                    .background(AppColor.canvas)
             }
         }
         .background(AppColor.canvas)
@@ -67,6 +66,28 @@ extension QuestionScaffold where Footer == EmptyView {
     ) {
         self.init(title: title, contentSpacing: contentSpacing, skip: skip, content: content) {
             EmptyView()
+        }
+    }
+}
+
+extension View {
+    /// Pins primary actions to the bottom edge with no backdrop. On iOS 26 and later, content
+    /// scrolling beneath the buttons blurs softly, matching the navigation bar's scroll edge effect.
+    func bottomActionBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        modifier(BottomActionBar(bar: bar()))
+    }
+}
+
+private struct BottomActionBar<Bar: View>: ViewModifier {
+    let bar: Bar
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .safeAreaBar(edge: .bottom, spacing: 0) { bar }
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
+        } else {
+            content.safeAreaInset(edge: .bottom, spacing: 0) { bar }
         }
     }
 }

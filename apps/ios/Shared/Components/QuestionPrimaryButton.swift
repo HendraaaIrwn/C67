@@ -21,5 +21,8 @@ struct QuestionPrimaryButton: View {
         .buttonBorderShape(.capsule)
         .controlSize(.large)
         .tint(AppColor.brand)
+        // The bar behind has no backdrop; an opaque capsule keeps the translucent disabled fill
+        // from showing scrolled content through the button.
+        .background(AppColor.canvas, in: .capsule)
     }
 }
