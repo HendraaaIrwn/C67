@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import C67Domain
 #if DEBUG
     import C67Data
@@ -19,7 +18,6 @@ struct TripHomeRootView: View {
     @State private var areaLookup: Task<Void, Never>?
     @State private var deviceAreaName: String?
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(presenter: PlanningPresenter, mode: String, accountPresenter: AccountPresenter?) {
@@ -110,23 +108,6 @@ struct TripHomeRootView: View {
                                                chooseLocation: chooseLocation, addTrip: addTrip, addSpecificPlace: addSpecificPlace,
                                                isBusy: presenter.isBusy, isLocating: location.isRequesting,
                                                accessibilityLocationTitle: presenter.origin == nil ? nil : presenter.originLabel)
-                                if presenter.origin == nil, !location.isRequesting {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        if location.permissionDenied {
-                                            Text("Location access is off").foregroundStyle(.secondary)
-                                            Button("Open Settings") {
-                                                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                                            }
-                                        } else if location.error != nil {
-                                            Text("Couldn’t get your location").foregroundStyle(.secondary)
-                                        }
-                                        Button("Use current location", systemImage: "location") { location.request() }
-                                            .accessibilityIdentifier("homeUseCurrentLocation")
-                                    }
-                                    .font(.subheadline)
-                                    .padding(.horizontal, 16)
-                                    .padding(.bottom, 8)
-                                }
                             }
                         }
                         .background(Color("TripCanvas"))
