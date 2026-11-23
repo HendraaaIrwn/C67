@@ -1,5 +1,19 @@
 # Starter verification
 
+## Travelants map sign-in — 23 November 2026
+
+The selected map design passed the generic Simulator build, two Apple sign-in unit tests, and six mock UI tests on iPhone 18 Pro Simulator (iOS 27.2). The UI tests covered cold launch, entry, privacy, App Review sign-in, session restoration, and both deletion paths. Light and Dark renders were inspected on iPhone and iPad, along with Accessibility XXXL on iPhone. The C67Backend package passed 158 tests. [Task and captures](../tasks/travelants-map-sign-in.md)
+
+On the updated `dev` base (`8d513d0`), a fresh Simulator build passed the 12 focused app unit tests and three mock UI tests for cold launch, sign-in, and privacy. All 194 C67Backend tests passed. The five changed Swift files passed formatting. The repository-wide check reported 20 files outside the change.
+
+## Four-second Travelants splash — 23 November 2026
+
+On iPhone 18 Pro Simulator (iOS 27.2), the mock cold launch showed Pin Portal, three waypoint pulses during route reveal, and Thread Through before opening Trip. The signed C67 scheme passed 35 focused app and UI tests, including the DEBUG skip and bundled video metadata. The generic Simulator build and 158 C67Backend tests also passed. [Task and verification](../tasks/travelants-splash-playback.md)
+
+The fade follow-up added a 320 ms handoff after playback. A mock cold-launch capture on the same Simulator showed Trip appearing underneath the fading splash. The focused run passed 10 app tests and one cold-launch UI test.
+
+After restoring the original movie and centered tile, the generic Simulator build, 10 app tests, one cold-launch UI test, and 158 C67Backend tests passed. A fresh launch on the same Simulator showed the restored artwork fading into Trip.
+
 ## Trip complete summary — 23 November 2026
 
 Three UI integration scenarios passed on iPhone 18 Pro Simulator (iOS 27.2). They covered the time column, the Return to starting point preview callback, accessibility text in Dark Mode, and completing a synthetic Pocket trip with recorded visits. [Task and verification](../tasks/trip-started-layout.md)
