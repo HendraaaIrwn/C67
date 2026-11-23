@@ -184,8 +184,17 @@ final class TripHomeUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Trip complete"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["All 3 stops visited"].exists)
         XCTAssertTrue(app.staticTexts["Visited stops"].exists)
-        XCTAssertTrue(app.buttons["Done"].exists)
+        let times = app.staticTexts.matching(identifier: "tripCompletedVisitTime")
+        XCTAssertEqual(times.count, 3)
+        XCTAssertEqual(times.element(boundBy: 0).frame.maxX, times.element(boundBy: 2).frame.maxX, accuracy: 1)
+        let returnToStart = app.buttons["tripReturnToStartingPoint"]
+        let done = app.buttons["Done"]
+        XCTAssertTrue(returnToStart.isHittable)
+        XCTAssertTrue(done.isHittable)
+        XCTAssertLessThan(returnToStart.frame.maxY, done.frame.minY)
         capture(app, name: "Trip complete summary")
+        returnToStart.tap()
+        XCTAssertTrue(app.alerts["Design preview"].waitForExistence(timeout: 5))
     }
     @MainActor func testEmptyHomeNavigationAndPlanningEntry() {
         let app = XCUIApplication()

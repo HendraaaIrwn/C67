@@ -12,6 +12,9 @@ packages:
     path: ../../packages/C67Backend
   PocketEngine:
     path: ../../packages/PocketEngine
+  Lottie:
+    url: https://github.com/airbnb/lottie-spm.git
+    exactVersion: 4.6.1
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -84,6 +87,8 @@ targets:
         product: C67Domain
       - package: C67Backend
         product: C67Data
+      - package: Lottie
+        product: Lottie
   C67AppTests:
     type: bundle.unit-test
     platform: iOS

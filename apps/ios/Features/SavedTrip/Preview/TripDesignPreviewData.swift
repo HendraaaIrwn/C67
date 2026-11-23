@@ -11,6 +11,9 @@
                          completedStopIDs: status == .completed ? ItineraryPreviewData.ids : [],
                          currentStopID: arrived ? ItineraryPreviewData.ids[0] : nil,
                          currentArrivedAt: arrived ? ItineraryPreviewData.startsAt : nil,
+                         visitedAtByStopID: status == .completed ? Dictionary(uniqueKeysWithValues: ItineraryPreviewData.proposal.stops.compactMap { stop in
+                             stop.arrivalAt.map { (stop.id, $0) }
+                         }) : nil,
                          synthetic: true, createdAt: ItineraryPreviewData.startsAt)
         }
     }

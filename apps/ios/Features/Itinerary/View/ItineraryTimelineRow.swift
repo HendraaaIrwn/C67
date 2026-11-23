@@ -2,10 +2,11 @@ import SwiftUI
 import C67Domain
 
 struct ItineraryTimelineRow: View {
+    static let markerTopInset: CGFloat = 22
+
     let markerSize: CGFloat
     let stop: ScheduledPlanningStop
     let number: Int
-    let isLast: Bool
     let nextStop: ScheduledPlanningStop?
     let nextDistance: String?
     let mode: PlanningMode
@@ -25,31 +26,20 @@ struct ItineraryTimelineRow: View {
     var moveDown: (() -> Void)? = nil
     let cardHeightChanged: (CGFloat) -> Void
 
-    private var railColor: Color { isLifted ? AppColor.accent : .secondary }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var liftAnimation: Animation? { reduceMotion ? nil : .easeInOut(duration: 0.18) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            VStack(spacing: 8) {
-                Text(number, format: .number)
-                    .font(.caption)
-                    .foregroundStyle(railColor)
-                    .frame(width: markerSize, height: markerSize)
-                    .overlay(Circle().stroke(railColor, lineWidth: 0.7))
-                    .padding(.top, 22)
-                    .accessibilityLabel("Stop \(number)")
-                if !isLast {
-                    Spacer(minLength: 0)
-                    connector(height: 20, lineWidth: 1)
-                        .padding(.vertical, 4)
-                        .opacity(isLifted ? 0 : 1)
-                }
-            }
-            .overlay(alignment: .top) {
-                if isLifted {
-                    connector(height: 36, lineWidth: 1.5)
-                        .padding(.top, 22 + markerSize + 5)
-                }
-            }
+            Text(number, format: .number)
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(AppColor.onBrand)
+                .frame(width: markerSize, height: markerSize)
+                .background(AppColor.brand, in: Circle())
+                .background(AppColor.canvas, in: Circle().inset(by: -2))
+                .padding(.top, Self.markerTopInset)
+                .accessibilityLabel("Stop \(number)")
             VStack(alignment: .leading, spacing: 0) {
                 ItineraryStopCard(stop: stop, zone: zone, details: details, isEditable: isEditable, weatherEvidence: weatherEvidence, edit: edit,
                                   showsEstimatedTimes: orderingOnly, symbol: symbol,
@@ -57,6 +47,7 @@ struct ItineraryTimelineRow: View {
                                   moveUp: moveUp, moveDown: moveDown)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeightChanged($0) }
                     .shadow(color: .black.opacity(isLifted ? 0.25 : 0), radius: 10, y: 5)
+                    .animation(liftAnimation, value: isLifted)
                 if let nextStop {
                     Label {
                         if orderingOnly {
@@ -73,21 +64,11 @@ struct ItineraryTimelineRow: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 7)
                     .opacity(isReordering ? 0 : 1)
+                    .animation(liftAnimation, value: isReordering)
                     .accessibilityHidden(isReordering)
                 }
             }
         }
         .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func connector(height: CGFloat, lineWidth: CGFloat) -> some View {
-        Path { path in
-            path.move(to: CGPoint(x: 1, y: 0))
-            path.addLine(to: CGPoint(x: 1, y: height))
-        }
-        .stroke(railColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, dash: [2, 4]))
-        .frame(width: 2, height: height)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }

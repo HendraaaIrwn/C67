@@ -1560,6 +1560,11 @@ public actor PocketPlanningRepository: PlanningRepository {
             trip.plan.stops[index].departureAt = trip.plan.usesExperienceFlow && seconds == 0 ? nil : jobClock().addingTimeInterval(Double(seconds))
         case .completeStop:
             guard trip.status == .active, let nextStop, nextStop.id == event.stopID, trip.currentStopID == nextStop.id else { throw PlanningError.invalidInput }
+            if let arrivedAt = trip.currentArrivedAt {
+                var visits = trip.visitedAtByStopID ?? [:]
+                visits[nextStop.id] = arrivedAt
+                trip.visitedAtByStopID = visits
+            }
             trip.completedStopIDs.append(nextStop.id); trip.currentStopID = nil; trip.currentArrivedAt = nil
             if trip.completedStopIDs.count == trip.plan.stops.count, trip.plan.input.planningEndpoint == nil { trip.status = .completed }
         case .arriveAtEndpoint:

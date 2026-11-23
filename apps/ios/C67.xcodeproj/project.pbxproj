@@ -14,6 +14,7 @@
 		05C11E09084E3B9BF027A050 /* AppleSignInButtonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 598DDCACBA91600B9EA6F908 /* AppleSignInButtonView.swift */; };
 		0700BF68387324013D0DA714 /* AccountFormTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C807D93125790B77AC5BA83 /* AccountFormTests.swift */; };
 		0788B833ACE4C0229DB87EB5 /* ItineraryMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86FB8D09422039DD60F31F1 /* ItineraryMapView.swift */; };
+		082FC721B603D82989A3C56F /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 95E4B5425D637D9836053AB1 /* Lottie */; };
 		0C5BE9AC9F9143F448269EE6 /* TravelantWordmarkGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABFC630D8E57D6A564013EF4 /* TravelantWordmarkGeometry.swift */; };
 		0E124480535AA1CC8D430FC9 /* PlanningAssembly.swift in Sources */ = {isa = PBXBuildFile; fileRef = 643B93F3AE893519364A32D3 /* PlanningAssembly.swift */; };
 		0FA6FAA11BEA032077D99F28 /* PocketLiveAcceptanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2512309A027D3935C2D6E8B3 /* PocketLiveAcceptanceTests.swift */; };
@@ -133,6 +134,7 @@
 		C7CD0F6FF77F71FEF321C33E /* AppColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9806B6F8D1557111217CA48 /* AppColor.swift */; };
 		C841D98BF7C1858054736C80 /* TripInterestQuestionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7100B4412E90FEE3C53D34 /* TripInterestQuestionView.swift */; };
 		C9C2F0EAD3C0982C576C7F89 /* PreferenceFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6A48B88879125128035CB6 /* PreferenceFlowTests.swift */; };
+		CA1FB3CD7921061A9FE622A3 /* trip-complete-checkmark.json in Resources */ = {isa = PBXBuildFile; fileRef = BDEBAFE78911CEEA9043451D /* trip-complete-checkmark.json */; };
 		CB16E3968F35D223BB92A8E4 /* HiFiPreviewUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AE27F156EA27D293D9E19A8 /* HiFiPreviewUITests.swift */; };
 		CB938489652BE555C45B525E /* rundowns.json in Resources */ = {isa = PBXBuildFile; fileRef = 84EB5806158C55B0D3C2DE7B /* rundowns.json */; };
 		CBA15C32C05033B1D5999B6A /* ItineraryDesignPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA4801310F978BB93B8502DA /* ItineraryDesignPreview.swift */; };
@@ -355,6 +357,7 @@
 		B8D6C1F4719F5EE22CD1FBD2 /* ItinerarySaveDesignPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItinerarySaveDesignPreview.swift; sourceTree = "<group>"; };
 		B9F68C653F2533641200C392 /* ItinerarySaveNameDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItinerarySaveNameDialog.swift; sourceTree = "<group>"; };
 		BB16C0BCA85B1CC7093004AE /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		BDEBAFE78911CEEA9043451D /* trip-complete-checkmark.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "trip-complete-checkmark.json"; sourceTree = "<group>"; };
 		BEFD5D7ED3FD88C01B173858 /* DayPart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPart.swift; sourceTree = "<group>"; };
 		C37C7EF33D2F0FB406AE6D38 /* TripCreationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripCreationSheet.swift; sourceTree = "<group>"; };
 		C453B24D5D33F096C72C1DFA /* TripFlowUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripFlowUITestSupport.swift; sourceTree = "<group>"; };
@@ -429,6 +432,7 @@
 			files = (
 				F732410A21B6F74213C11AB9 /* C67Domain in Frameworks */,
 				FDE0A3B6F0B341F26C8F7E62 /* C67Data in Frameworks */,
+				082FC721B603D82989A3C56F /* Lottie in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1171,6 +1175,7 @@
 				C75C6E74D55319B1C6578F46 /* Colors.xcassets */,
 				0386A5DD3196911C6D5AA905 /* ItineraryPreview.xcassets */,
 				E8C0CAE3EF07FE9DFCC67B1F /* PrivacyInfo.xcprivacy */,
+				BDEBAFE78911CEEA9043451D /* trip-complete-checkmark.json */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -1547,6 +1552,7 @@
 			packageProductDependencies = (
 				15D3BE2F8A6BAD9B3E742988 /* C67Domain */,
 				4B4556FBE0CA79AB53FD72F1 /* C67Data */,
+				95E4B5425D637D9836053AB1 /* Lottie */,
 			);
 			productName = C67;
 			productReference = 4BB95E757091972E61323BF2 /* C67.app */;
@@ -1612,6 +1618,7 @@
 			mainGroup = 706EB5C36AB194920BE13206;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				A7E6BA101D08F69E3B933241 /* XCRemoteSwiftPackageReference "lottie-spm" */,
 				9F055DD66CEA1D73B74B6401 /* XCLocalSwiftPackageReference "../../packages/C67Backend" */,
 				8343575D7C8AB00B4268E278 /* XCLocalSwiftPackageReference "../../packages/PocketEngine" */,
 			);
@@ -1639,6 +1646,7 @@
 				D9CDD23FC6A0F4AA290DF346 /* README.md in Resources */,
 				6322ED4F68C9EBF7E6EE3D27 /* planning-input.json in Resources */,
 				CB938489652BE555C45B525E /* rundowns.json in Resources */,
+				CA1FB3CD7921061A9FE622A3 /* trip-complete-checkmark.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2244,6 +2252,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A7E6BA101D08F69E3B933241 /* XCRemoteSwiftPackageReference "lottie-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/airbnb/lottie-spm.git";
+			requirement = {
+				kind = exactVersion;
+				version = 4.6.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		15D3BE2F8A6BAD9B3E742988 /* C67Domain */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -2256,6 +2275,11 @@
 		8942D2655C09BFDCF3A9872C /* PocketEngine */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = PocketEngine;
+		};
+		95E4B5425D637D9836053AB1 /* Lottie */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A7E6BA101D08F69E3B933241 /* XCRemoteSwiftPackageReference "lottie-spm" */;
+			productName = Lottie;
 		};
 		A68E4C7D6CA709DB817A9B3F /* C67Data */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -189,7 +189,34 @@ final class PocketEngineUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [started], timeout: 10), .completed, app.debugDescription)
         if confirmSchedule.isHittable { confirmSchedule.tap() }
         XCTAssertTrue(arrival.waitForExistence(timeout: 10), app.debugDescription)
-        capture(app, "Started from the itinerary review")
+        let plannedStart = app.staticTexts["tripStartingPointStatus"]
+        XCTAssertTrue(plannedStart.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Planned distance"].exists)
+        XCTAssertFalse(app.staticTexts["Remaining"].exists)
+        XCTAssertTrue(arrival.isHittable)
+        capture(app, "Trip starting point available while waiting for device location")
+
+        arrival.tap()
+        let plannedVisit = app.staticTexts["arrivalPlannedVisitWindow"]
+        XCTAssertTrue(plannedVisit.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertNotNil(plannedVisit.label.range(of: #"^\d{2}\.\d{2}–\d{2}\.\d{2}$"#, options: .regularExpression))
+        let continueVisit = app.buttons["completeTripVisit"]
+        XCTAssertTrue(continueVisit.isHittable)
+        continueVisit.tap()
+        XCTAssertTrue(arrival.waitForExistence(timeout: 10), app.debugDescription)
+        for _ in 0 ..< 2 {
+            arrival.tap()
+            XCTAssertTrue(continueVisit.waitForExistence(timeout: 10), app.debugDescription)
+            continueVisit.tap()
+        }
+        let summary = app.staticTexts["Trip complete"]
+        let endpoint = app.buttons["I’ve arrived at the endpoint"]
+        let finished = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in summary.exists || endpoint.isHittable }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [finished], timeout: 10), .completed, app.debugDescription)
+        if endpoint.isHittable { endpoint.tap() }
+        XCTAssertTrue(summary.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(app.staticTexts.matching(identifier: "tripCompletedVisitTime").count, 3)
+        XCTAssertTrue(app.buttons["tripReturnToStartingPoint"].isHittable)
     }
 
     @MainActor func testItineraryCheckmarkValidatesNameAndSavesToHome() {
@@ -204,6 +231,16 @@ final class PocketEngineUITests: XCTestCase {
         XCTAssertFalse(review.buttons["tripCreationCancel"].exists)
         XCTAssertFalse(app.buttons["Save this trip"].exists)
         assertFooterAlignment(app.buttons["itineraryStartNow"], with: footer)
+
+        let editName = app.buttons["itineraryEditTitle"]
+        XCTAssertTrue(editName.isHittable)
+        XCTAssertEqual(editName.label, "Edit trip name")
+        editName.tap()
+        let editNameAlert = app.alerts["Edit trip name"]
+        XCTAssertTrue(editNameAlert.waitForExistence(timeout: 5))
+        XCTAssertTrue(editNameAlert.textFields.firstMatch.exists)
+        editNameAlert.buttons["Cancel"].tap()
+
         save.tap()
         let alert = app.alerts["Save Itinerary"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
@@ -385,6 +422,7 @@ final class PocketEngineUITests: XCTestCase {
         XCTAssertTrue(source.isHittable && target.isHittable, app.debugDescription)
         let movedLabel = source.label
         let originalFirstLabel = target.label
+        capture(app, "Itinerary rail before drag")
         let destination = target.coordinate(withNormalizedOffset: .init(dx: -1.4, dy: 0.6))
         source.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5))
             .press(forDuration: 0.25, thenDragTo: destination, withVelocity: .slow, thenHoldForDuration: 1.5)
