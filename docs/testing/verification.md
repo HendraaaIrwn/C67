@@ -1,5 +1,49 @@
 # Starter verification
 
+## Closer itinerary map focus — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). It checked zoom, pin recentering, and card tracking while panning. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Anchored itinerary card during map focus — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). It checked that camera recentering stays active and that the compact card moves with the selected pin when the map is panned. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Itinerary map focus motion — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). It checked pin recentering, stable bottom placement across stops, and dismissal. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Itinerary map callout motion — 23 November 2026
+
+The focused mock Pocket integration scenario passed after adding pin-anchored callout transitions on iPhone 18 Pro Simulator (iOS 27.2). It verified opening, dismissal and opening a second pin. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Compact itinerary map pin card — 23 November 2026
+
+The focused Pocket UI integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2) with synthetic data. It verified that the schedule sits beside Open in Maps and that the action is at least 44 points tall. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Simplified itinerary map pin card — 23 November 2026
+
+The focused Pocket UI integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2) with synthetic data. It checked the card’s address and planned visit, the absence of the three removed fields, and the address fallback when switching pins. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Itinerary map pin details — 23 November 2026
+
+The focused Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2) using synthetic data. It compared the C2 callout's schedule with the itinerary, checked the rendered address, contact, hours and entry rule, then opened another pin with unavailable details. The Pocket HTTP integration also passed with a disposable database, covering authorization, account isolation, place matching and expired evidence. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Itinerary drag target slot — 23 November 2026
+
+One focused Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2). It moved the last stop to the first position and confirmed the new order. A screenshot captured while holding the drag showed the carried connector and the dashed target outline. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
+## Separate itinerary visit time row — 23 November 2026
+
+One focused Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2). It verified the full-width visit-time action below the reorder handle, opened Edit visit by tapping its trailing edge, and confirmed the edited duration on reopening. A Simulator capture showed the chevron at the right edge of the separate row.
+
+## Edit visit duration wheel — 23 November 2026
+
+One focused Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2). It selected 50 minutes in the native wheel, applied the change with the bottom Update itinerary button, and confirmed 50 minutes on reopening the sheet. [Task and verification](../tasks/itinerary-visit-duration-wheel.md)
+
+## Itinerary stop icons — 23 November 2026
+
+The focused Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2). Its itinerary capture showed the up/down chevrons on the reorder handle and a right chevron after the editable visit time.
+
 ## Before you go preparation card — 23 November 2026
 
 The focused Pocket integration scenario passed on iPhone 18 Pro and iPad Pro 11-inch (M5) Simulators (iOS 27.2). It verified that the production-facing card appeared after Suggested departure in staging, with the synthetic rain tip and the opening-hours reminder. The iPad capture used Dark Mode and accessibility-medium Dynamic Type. [Scope and evidence](../tasks/itinerary-preparation.md)

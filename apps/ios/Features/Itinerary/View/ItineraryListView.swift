@@ -6,6 +6,7 @@ struct ItineraryListView: View {
         let source: UUID
         let originalIndex: Int
         let frames: [CGRect]
+        let cardHeight: CGFloat
         let startY: CGFloat
         let startTimelineY: CGFloat
         var finger: CGPoint
@@ -21,6 +22,12 @@ struct ItineraryListView: View {
             if targetIndex <= index, index < originalIndex { return index + 1 }
             return index
         }
+
+        var slotY: CGFloat {
+            let destination = frames[targetIndex]
+            if targetIndex > originalIndex { return destination.maxY - frames[originalIndex].height }
+            return destination.minY
+        }
     }
 
     private struct ScrollRange: Equatable {
@@ -29,7 +36,7 @@ struct ItineraryListView: View {
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .caption) private var timelineIndent = 34
+    @ScaledMetric(relativeTo: .caption) private var timelineMarkerSize = 24
     let proposal: PlanProposal
     var excludedPlaces: [String] = []
     var editEndpoints: ((ItineraryEditRoute) -> Void)?
@@ -59,6 +66,7 @@ struct ItineraryListView: View {
     @State private var drag: StopDrag?
     @State private var pendingOrder: [UUID]?
     @State private var rowFrames: [UUID: CGRect] = [:]
+    @State private var cardHeights: [UUID: CGFloat] = [:]
     @State private var timelineFrame = CGRect.zero
     @State private var viewport = CGRect.zero
     @State private var scrollPosition = ScrollPosition()
@@ -281,6 +289,11 @@ struct ItineraryListView: View {
     }
 
     private var reorderAnimation: Animation? { reduceMotion ? nil : .snappy(duration: 0.23, extraBounce: 0) }
+    private var timelineIndent: CGFloat { timelineMarkerSize + 10 }
+    private var markedSlot: Int? {
+        guard let drag, drag.targetIndex != drag.originalIndex, isInDropArea(drag.finger) else { return nil }
+        return drag.targetIndex
+    }
 
     private func timeline(_ stops: [ScheduledPlanningStop]) -> some View {
         let ordered = pendingOrder?.compactMap { id in stops.first { $0.id == id } } ?? stops
@@ -298,6 +311,26 @@ struct ItineraryListView: View {
                 .zIndex(lifted ? 1 : 0)
                 .animation(lifted ? nil : reorderAnimation, value: drag?.targetIndex)
             }
+        }
+        .background(alignment: .topLeading) {
+            ZStack(alignment: .topLeading) {
+                if let drag, markedSlot != nil {
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(AppColor.accent.opacity(0.08))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18)
+                                .strokeBorder(AppColor.accent, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [4, 4]))
+                        }
+                        .frame(height: drag.cardHeight + 4)
+                        .padding(.leading, timelineIndent - 2)
+                        .padding(.trailing, -2)
+                        .offset(y: drag.slotY - 2)
+                        .transition(.opacity)
+                }
+            }
+            .animation(reorderAnimation, value: markedSlot)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
         .coordinateSpace(.named("itineraryTimeline"))
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
@@ -322,7 +355,7 @@ struct ItineraryListView: View {
         }
         let up: (() -> Void)? = index > 0 ? { commitMove(from: index, to: index - 1, stops: stops) } : nil
         let down: (() -> Void)? = index + 1 < stops.count ? { commitMove(from: index, to: index + 1, stops: stops) } : nil
-        return ItineraryTimelineRow(stop: stop, number: (drag?.position(of: index) ?? index) + 1, isLast: next == nil,
+        return ItineraryTimelineRow(markerSize: timelineMarkerSize, stop: stop, number: (drag?.position(of: index) ?? index) + 1, isLast: next == nil,
                                     nextStop: next, nextDistance: distance,
                                     mode: proposal.input.mode, zone: proposal.input.timeZone,
                                     details: stopDetails, isEditable: allowsEditing,
@@ -331,7 +364,7 @@ struct ItineraryListView: View {
                                     reorderChanged: reorder, reorderEnded: { finishDrag($0, source: stop.id, stops: stops) },
                                     reorderCancelled: { if drag?.source == stop.id { cancelDrag() } },
                                     isLifted: lifted, isReordering: drag != nil || pendingOrder != nil,
-                                    moveUp: up, moveDown: down)
+                                    moveUp: up, moveDown: down, cardHeightChanged: { cardHeights[stop.id] = $0 })
     }
 
     @ViewBuilder private func tripEdits(_ edit: @escaping (ItineraryEditRoute) -> Void) -> some View {
@@ -344,8 +377,8 @@ struct ItineraryListView: View {
         guard !isSaving, pendingOrder == nil else { return }
         if drag == nil {
             let frames = stops.compactMap { rowFrames[$0.id] }
-            guard frames.count == stops.count else { return }
-            drag = StopDrag(source: source, originalIndex: index, frames: frames, startY: value.startLocation.y,
+            guard frames.count == stops.count, let cardHeight = cardHeights[source] else { return }
+            drag = StopDrag(source: source, originalIndex: index, frames: frames, cardHeight: cardHeight, startY: value.startLocation.y,
                             startTimelineY: timelineFrame.minY, finger: value.location, targetIndex: index)
         }
         guard drag?.source == source else { return }
@@ -374,12 +407,15 @@ struct ItineraryListView: View {
         guard let drag, drag.source == source else { return }
         self.drag?.finger = value.location
         updateTarget()
-        guard let target = self.drag?.targetIndex, target != drag.originalIndex,
-              viewport.contains(value.location), timelineFrame.insetBy(dx: -16, dy: -16).contains(value.location) else {
+        guard let target = self.drag?.targetIndex, target != drag.originalIndex, isInDropArea(value.location) else {
             cancelDrag()
             return
         }
         commitMove(from: drag.originalIndex, to: target, stops: stops)
+    }
+
+    private func isInDropArea(_ point: CGPoint) -> Bool {
+        viewport.contains(point) && timelineFrame.insetBy(dx: -16, dy: -16).contains(point)
     }
 
     private func cancelDrag() {

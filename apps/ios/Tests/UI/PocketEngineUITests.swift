@@ -251,6 +251,151 @@ final class PocketEngineUITests: XCTestCase {
         capture(app, "Before you go with a synthetic rain forecast")
     }
 
+    @MainActor func testItineraryMapPinShowsOnlyPlaceAndVisitDetails() {
+        continueAfterFailure = false
+        let app = openFixtureRecommendations(extraArguments: ["-C67_APP_MODE", "staging", "--itinerary-pin-details-fixture"])
+        reviewFixtureTripWithUnknownHours(in: app)
+        _ = toolbarSave(in: app)
+        let visit = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                                                     "itineraryEdit-", "Fixture Japanese 1")).firstMatch
+        let plannedTime = try? XCTUnwrap(visit.value as? String)
+        XCTAssertNotNil(plannedTime)
+        let expand = app.buttons["itineraryExpandMap"]
+        scrollToTripControl(expand, in: app)
+        expand.tap()
+
+        let pin = app.buttons.containing(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                                                     "itineraryMapStop-", "Fixture Japanese 1")).firstMatch
+        XCTAssertTrue(pin.waitForExistence(timeout: 10), app.debugDescription)
+        let unfocusedPinY = pin.frame.midY
+        let adjacentPin = app.buttons["itineraryMapStop-2"].firstMatch
+        XCTAssertTrue(adjacentPin.exists)
+        let unfocusedSeparation = abs(adjacentPin.frame.midY - unfocusedPinY)
+        XCTAssertGreaterThan(unfocusedSeparation, 20)
+        pin.tap()
+        let title = app.staticTexts["itineraryPinTitle"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(title.label, "Fixture Japanese 1")
+        XCTAssertEqual(app.staticTexts["itineraryPinAddress"].label, "Synthetic fixture address")
+        let schedule = app.descendants(matching: .any)["itineraryPinSchedule"].firstMatch
+        XCTAssertTrue(schedule.label.contains("45 min"), app.debugDescription)
+        XCTAssertTrue(schedule.label.contains(plannedTime ?? "Missing planned time"))
+        for label in ["Regular hours", "Contact", "Entry rules", "Entry rules source"] {
+            XCTAssertFalse(app.staticTexts[label].exists, app.debugDescription)
+        }
+        let maps = app.buttons["itineraryPinOpenMaps"]
+        XCTAssertTrue(maps.exists)
+        XCTAssertLessThanOrEqual(schedule.frame.maxX, maps.frame.minX)
+        XCTAssertTrue(schedule.frame.minY < maps.frame.maxY && maps.frame.minY < schedule.frame.maxY)
+        XCTAssertGreaterThanOrEqual(maps.frame.height, 44)
+        let focusedPin = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            abs(pin.frame.midY - unfocusedPinY) > 30
+                && abs(pin.frame.midX - app.frame.midX) < 24
+                && abs(pin.frame.midY - app.frame.midY) < 95
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [focusedPin], timeout: 5), .completed, app.debugDescription)
+        let zoomedIn = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !adjacentPin.exists || abs(adjacentPin.frame.midY - pin.frame.midY) > unfocusedSeparation * 1.25
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [zoomedIn], timeout: 5), .completed, app.debugDescription)
+        let focusedPinY = pin.frame.midY
+        let cardTitleY = title.frame.minY
+        XCTAssertLessThan(abs(cardTitleY - focusedPinY), 215)
+        capture(app, "Itinerary card anchored to the focused pin")
+
+        let panStart = app.coordinate(withNormalizedOffset: .init(dx: 0.08, dy: 0.41))
+        let panEnd = app.coordinate(withNormalizedOffset: .init(dx: 0.08, dy: 0.50))
+        panStart.press(forDuration: 0.05, thenDragTo: panEnd, withVelocity: .slow, thenHoldForDuration: 0)
+        let cardFollowedPin = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let pinMovement = pin.frame.midY - focusedPinY
+            let cardMovement = title.frame.minY - cardTitleY
+            return abs(pinMovement) > 25 && abs(cardMovement - pinMovement) < 15
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [cardFollowedPin], timeout: 5), .completed, app.debugDescription)
+
+        app.buttons["itineraryPinClose"].tap()
+        XCTAssertTrue(title.waitForNonExistence(timeout: 5))
+        let otherPin = app.buttons.containing(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                                                          "itineraryMapStop-", "Fixture Unknown Hours")).firstMatch
+        otherPin.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(title.label, "Fixture Unknown Hours")
+        XCTAssertEqual(app.staticTexts["itineraryPinAddress"].label, "Address unavailable")
+        app.buttons["itineraryCloseMap"].tap()
+        XCTAssertTrue(app.navigationBars["Itinerary"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor func testVisitDurationWheelUpdatesItinerary() {
+        continueAfterFailure = false
+        let app = openFixtureRecommendations(extraArguments: [
+            "-io.pibeebee.c67.orderingMethod", "luna", "-C67_APP_MODE", "staging",
+        ])
+        reviewFixtureTripWithUnknownHours(in: app)
+        _ = toolbarSave(in: app)
+        let visit = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                                                     "itineraryEdit-", "Fixture Japanese 1")).firstMatch
+        scrollToTripControl(visit, in: app)
+        let stopID = visit.identifier.dropFirst("itineraryEdit-".count)
+        let reorder = app.descendants(matching: .any)["itineraryReorder-\(stopID)"]
+        XCTAssertTrue(reorder.exists, app.debugDescription)
+        XCTAssertGreaterThanOrEqual(visit.frame.minY, reorder.frame.maxY)
+        XCTAssertGreaterThanOrEqual(visit.frame.maxX, reorder.frame.maxX)
+        XCTAssertGreaterThanOrEqual(visit.frame.height, 44)
+        capture(app, "Separate itinerary time row")
+        visit.coordinate(withNormalizedOffset: .init(dx: 0.94, dy: 0.5)).tap()
+
+        let editor = app.navigationBars["Edit visit"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        let place = app.staticTexts["itineraryVisitPlace"]
+        XCTAssertTrue(place.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(place.label, "Fixture Japanese 1")
+        let wheel = app.pickerWheels.firstMatch
+        XCTAssertTrue(wheel.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(wheel.value as? String, "45 min")
+        let update = app.buttons["Update itinerary"]
+        XCTAssertTrue(update.isHittable)
+        XCTAssertGreaterThan(update.frame.minY, wheel.frame.maxY)
+
+        wheel.adjust(toPickerWheelValue: "50 min")
+        XCTAssertEqual(wheel.value as? String, "50 min")
+        capture(app, "Native visit duration wheel and bottom action")
+        update.tap()
+        XCTAssertTrue(editor.waitForNonExistence(timeout: 5))
+        _ = toolbarSave(in: app)
+        scrollToTripControl(visit, in: app)
+        visit.tap()
+        XCTAssertTrue(wheel.waitForExistence(timeout: 5))
+        XCTAssertEqual(wheel.value as? String, "50 min")
+    }
+
+    @MainActor func testItineraryDragMovesLastStopIntoNewSlot() {
+        continueAfterFailure = false
+        let app = openFixtureRecommendations(extraArguments: ["-C67_APP_MODE", "staging"])
+        reviewFixtureTripWithUnknownHours(in: app)
+        _ = toolbarSave(in: app)
+        let itinerary = app.scrollViews["itineraryList"]
+        let handles = itinerary.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "itineraryReorder-"))
+        let source = handles.element(boundBy: 2)
+        let target = handles.element(boundBy: 0)
+        for _ in 0 ..< 5 where !source.isHittable {
+            let start = itinerary.coordinate(withNormalizedOffset: .init(dx: 0.97, dy: 0.67))
+            let end = itinerary.coordinate(withNormalizedOffset: .init(dx: 0.97, dy: 0.49))
+            start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0)
+        }
+        XCTAssertTrue(source.isHittable && target.isHittable, app.debugDescription)
+        let movedLabel = source.label
+        let originalFirstLabel = target.label
+        let destination = target.coordinate(withNormalizedOffset: .init(dx: -1.4, dy: 0.6))
+        source.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.25, thenDragTo: destination, withVelocity: .slow, thenHoldForDuration: 1.5)
+        let reordered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            handles.element(boundBy: 0).label == movedLabel && handles.element(boundBy: 1).label == originalFirstLabel
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [reordered], timeout: 10), .completed, app.debugDescription)
+        _ = toolbarSave(in: app)
+        capture(app, "Itinerary after dropping into the first slot")
+    }
+
     @MainActor func testV4CreatesSyntheticItineraryFromSelectedPlaces() {
         continueAfterFailure = false
         let app = openV4MainSpot()
