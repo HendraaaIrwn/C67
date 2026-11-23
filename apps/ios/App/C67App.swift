@@ -41,11 +41,17 @@ struct C67App: App {
                 } else if ProcessInfo.processInfo.arguments.contains("--trip-processing-preview") {
                     TripProcessingActivityPreview()
                 } else {
-                    StarterRootView(pocketRepositories: pocketRepositories)
+                    starter
                 }
             #else
-                StarterRootView(pocketRepositories: pocketRepositories)
+                starter
             #endif
+        }
+    }
+
+    private var starter: some View {
+        LaunchSplashView {
+            StarterRootView(pocketRepositories: pocketRepositories)
         }
     }
 }
@@ -138,56 +144,16 @@ private struct PocketAuthenticatedRoot: View {
                 PocketAuthenticatedWorkspace(authentication: authentication, accountID: account.id, repositories: repositories)
                     .id(account.id)
             } else if restored {
-                ScrollView {
-                    VStack(spacing: 20) {
-                        Image("TravelantsMark")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: 144)
-                            .accessibilityHidden(true)
-                        Text("Welcome to Travelants")
-                            .font(AppFont.largeTitleBold)
-                            .accessibilityAddTraits(.isHeader)
-                        Text(accountDeleted ? "Your account has been deleted." : "Plan a trip and pick up where you left off.")
-                            .font(AppFont.body)
-                            .foregroundStyle(.secondary)
-                        if requiresManualAppleRevocation {
-                            Link("How to remove Apple access", destination: AccountView.appleRevocationHelp)
-                        }
-                        AppleSignInButtonView { result in
-                            switch result {
-                            case .success(let credentials):
-                                busy = true; issue = nil
-                                Task {
-                                    defer { busy = false }
-                                    do { _ = try await authentication.signInWithApple(credentials) }
-                                    catch is CancellationError { }
-                                    catch { issue = .init(account: error) }
-                                }
-                            case .failure(let failure): issue = .init(account: failure)
-                            }
-                        }.disabled(busy)
-                        if !reviewEmails.isEmpty {
-                            Button("App Review Sign-In") { showsReviewSignIn = true }
-                                .accessibilityIdentifier("appReviewSignIn")
-                                .disabled(busy)
-                        }
-                        if let policy = TravelantsPrivacy.policyURL { Link("Privacy Policy", destination: policy) }
-                        if busy { ProgressView("Signing in…") }
-                        if let issue {
-                            RecoveryNotice(title: "Sign-in needs attention", message: issue.message,
-                                           primary: issue.recovery == .checkSession
-                                               ? .init(title: "Check session again") { Task { await checkSession() } }
-                                               : nil)
-                        }
-                    }
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 32)
-                    .frame(maxWidth: 420)
-                    .frame(maxWidth: .infinity)
-                }
-                .defaultScrollAnchor(.center, for: .alignment)
+                TravelantsSignInView(
+                    accountDeleted: accountDeleted,
+                    appleRevocationHelp: requiresManualAppleRevocation ? AccountView.appleRevocationHelp : nil,
+                    privacyPolicy: TravelantsPrivacy.policyURL,
+                    busy: busy,
+                    issue: issue,
+                    onReviewSignIn: reviewEmails.isEmpty ? nil : { showsReviewSignIn = true },
+                    onCheckSession: { Task { await checkSession() } },
+                    onAppleSignIn: handleAppleSignIn
+                )
             } else { ProgressView("Restoring your account…") }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -215,6 +181,20 @@ private struct PocketAuthenticatedRoot: View {
                     restored = true
                 }
             }
+        }
+    }
+
+    private func handleAppleSignIn(_ result: Result<AppleSignInCredentials, AuthenticationError>) {
+        switch result {
+        case .success(let credentials):
+            busy = true; issue = nil
+            Task {
+                defer { busy = false }
+                do { _ = try await authentication.signInWithApple(credentials) }
+                catch is CancellationError { }
+                catch { issue = .init(account: error) }
+            }
+        case .failure(let failure): issue = .init(account: failure)
         }
     }
 

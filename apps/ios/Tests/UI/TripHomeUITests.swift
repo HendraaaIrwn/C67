@@ -3,6 +3,25 @@ import XCTest
 final class TripHomeUITests: XCTestCase {
     private let deletionFixture = ["--skip-splash", "--pocket-auth-fixture", "--pocket-deletion-fixture"]
 
+    @MainActor func testColdLaunchPlaysSplashAndOpensTripHome() {
+        let app = XCUIApplication()
+        let splash = app.descendants(matching: .any)["launchSplash"].firstMatch
+        let trip = app.tabBars.buttons["Trip"]
+
+        app.launch()
+        XCTAssertTrue(splash.waitForExistence(timeout: 2))
+        XCTAssertFalse(trip.isHittable)
+        XCTAssertTrue(splash.waitForNonExistence(timeout: 6))
+        XCTAssertTrue(trip.waitForExistence(timeout: 5))
+        XCTAssertTrue(trip.isHittable)
+
+        app.terminate()
+        app.launchArguments = ["--skip-splash"]
+        app.launch()
+        XCTAssertTrue(trip.waitForExistence(timeout: 5))
+        XCTAssertFalse(splash.exists)
+    }
+
     @MainActor func testDeleteAccountReviewCanBeCancelled() {
         continueAfterFailure = false
         let app = XCUIApplication()
