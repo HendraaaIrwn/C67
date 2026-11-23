@@ -1,5 +1,55 @@
 # Starter verification
 
+## Trip complete summary — 23 November 2026
+
+Three UI integration scenarios passed on iPhone 18 Pro Simulator (iOS 27.2). They covered the time column, the Return to starting point preview callback, accessibility text in Dark Mode, and completing a synthetic Pocket trip with recorded visits. [Task and verification](../tasks/trip-started-layout.md)
+
+After adding the bundled Lottie completion mark, the focused summary layout and Dark Mode accessibility-size integration scenarios both passed. Result bundle: `/tmp/c67-trip-complete-lottie.xcresult`.
+
+Both scenarios passed again after the slower completion mark was moved to the end of the summary entrance. Result bundle: `/tmp/c67-trip-complete-lottie-delayed.xcresult`.
+
+## Arrival planned visit window — 23 November 2026
+
+Three focused UI integration scenarios passed on iPhone 18 Pro Simulator (iOS 27.2), covering the rendered range, accessibility text in Dark Mode, and progressing through the Pocket arrival flow. The legacy trip-creation scenario did not reach the itinerary. [Task and verification](../tasks/trip-started-layout.md)
+
+The Pocket arrival integration passed again after the approximation symbol was removed from the Up next estimate. Result bundle: `/tmp/c67-arrival-estimate-label.xcresult`.
+
+## Approved Trip Started layout — 23 November 2026
+
+Three focused UI integration scenarios passed on iPhone 18 Pro Simulator (iOS 27.2), covering destination-first placement, the GPS action row, Dark Mode at accessibility text size, and the synthetic no-GPS state. [Task and verification](../tasks/trip-started-layout.md)
+
+## Active trip starting-point fallback — 23 November 2026
+
+Two focused C67 UI integration scenarios passed on iPhone 18 Pro Simulator (iOS 27.2). The synthetic active trip showed its saved starting point and planned metrics while the device position was unavailable, and manual arrival remained available. Live MapKit route calculation was outside the synthetic test. [Task and verification](../tasks/trip-started-layout.md)
+
+## Active trip map layout — 23 November 2026
+
+Four focused C67 UI integration scenarios passed on iPhone 18 Pro Simulator (iOS 27.2). They covered the route and arrival previews, compact actions, Dark Mode at accessibility XXXL, and starting a synthetic Pocket trip with location unavailable. [Task and verification](../tasks/trip-started-layout.md)
+
+## Itinerary title chevron — 23 November 2026
+
+The focused Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). The title chevron opened the Edit trip name dialog, cancellation returned to the itinerary, and the save flow still reached Home. Result bundle: `/tmp/c67-itinerary-title-chevron.xcresult`.
+
+## Short itinerary connectors — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2) after shortening the gray dashed connectors between cards. The focused scenario passed again at the revised 24-point and 64-point lengths. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
+## Dashed gray itinerary timeline — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2) after replacing the stationary blue stroke with a dashed gray line. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
+## Continuous blue itinerary timeline — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). The third stop moved into the first slot, and captures before and during the drag showed that the blue line stayed fixed. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
+## Stationary itinerary connectors — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). Captures before and during the drag showed the card and number moving while the dashed connectors stayed in their slots. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
+## Itinerary drag timeline continuity — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). It moved the last stop into the first slot. During-drag and settled captures showed the same gray marker and connector dimensions. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
 ## Closer itinerary map focus — 23 November 2026
 
 The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). It checked zoom, pin recentering, and card tracking while panning. [Task and verification](../tasks/itinerary-map-pin-details.md)

@@ -36,7 +36,7 @@ struct ItineraryListView: View {
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .caption) private var timelineMarkerSize = 24
+    @ScaledMetric(relativeTo: .caption) private var timelineMarkerSize = 28
     let proposal: PlanProposal
     var excludedPlaces: [String] = []
     var editEndpoints: ((ItineraryEditRoute) -> Void)?
@@ -87,7 +87,10 @@ struct ItineraryListView: View {
                             .font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
                         if let editTitle {
                             Button(action: editTitle) {
-                                Image(systemName: "pencil").font(.title3).frame(width: 44, height: 44)
+                                Image(systemName: "chevron.right")
+                                    .font(.title3.weight(.semibold))
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(.rect)
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Edit trip name")
@@ -305,6 +308,11 @@ struct ItineraryListView: View {
                     timelineRow(index: index, stop: stop, stops: displayed, lifted: lifted)
                         .offset(y: rowOffset(index: index, lifted: lifted))
                 }
+                .background {
+                    if index < displayed.count - 1 {
+                        timelineConnector
+                    }
+                }
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("itineraryTimeline")) } action: {
                     rowFrames[stop.id] = $0
                 }
@@ -339,6 +347,23 @@ struct ItineraryListView: View {
         }
     }
 
+    private var timelineConnector: some View {
+        // The connector is drawn in the stationary slot, outside the row's drag offset.
+        GeometryReader { geometry in
+            let markerDistance = geometry.size.height
+            let length = max(0, min(64, markerDistance - timelineMarkerSize - 16))
+            let x = timelineMarkerSize / 2
+            let y = ItineraryTimelineRow.markerTopInset + x + (markerDistance - length) / 2
+            Path { path in
+                path.move(to: CGPoint(x: x, y: y))
+                path.addLine(to: CGPoint(x: x, y: y + length))
+            }
+            .stroke(AppColor.secondaryText, style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [2, 4]))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
     private func timelineRow(index: Int, stop: ScheduledPlanningStop, stops: [ScheduledPlanningStop], lifted: Bool) -> some View {
         let next = index + 1 < stops.count ? stops[index + 1] : nil
         let isExperience = proposal.usesExperienceFlow
@@ -355,7 +380,7 @@ struct ItineraryListView: View {
         }
         let up: (() -> Void)? = index > 0 ? { commitMove(from: index, to: index - 1, stops: stops) } : nil
         let down: (() -> Void)? = index + 1 < stops.count ? { commitMove(from: index, to: index + 1, stops: stops) } : nil
-        return ItineraryTimelineRow(markerSize: timelineMarkerSize, stop: stop, number: (drag?.position(of: index) ?? index) + 1, isLast: next == nil,
+        return ItineraryTimelineRow(markerSize: timelineMarkerSize, stop: stop, number: index + 1,
                                     nextStop: next, nextDistance: distance,
                                     mode: proposal.input.mode, zone: proposal.input.timeZone,
                                     details: stopDetails, isEditable: allowsEditing,

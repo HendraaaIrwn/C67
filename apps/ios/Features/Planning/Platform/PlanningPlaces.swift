@@ -361,12 +361,18 @@ enum PlanningDirections {
 final class TripNavigation: NSObject, @preconcurrency CLLocationManagerDelegate {
     private(set) var location: CLLocation?
     private(set) var route: MKRoute?
-    private(set) var error: String?
+    private(set) var plannedRoute: MKRoute?
+    private(set) var locationError: String?
+    private(set) var directionsError: String?
+    var error: String? { locationError ?? directionsError }
     private(set) var arrivalReady = false
     private(set) var permissionDenied = false
     private var target: CLLocation?
     private var lastRouteLocation: CLLocation?
     private var routeTask: Task<Void, Never>?
+    private var plannedRouteTask: Task<Void, Never>?
+    private var plannedOrigin: PlanningPoint?
+    private var requestedPlannedRoute = false
     private var arrivalSamples: [CLLocation] = []
     private var lastSampleDate: Date?
     private var generation = 0
@@ -381,25 +387,38 @@ final class TripNavigation: NSObject, @preconcurrency CLLocationManagerDelegate 
         manager.activityType = .automotiveNavigation
     }
 
-    func start(to point: PlanningPoint, mode: PlanningMode = .automobile) {
+    func start(to point: PlanningPoint, mode: PlanningMode = .automobile, plannedOrigin: PlanningPoint? = nil) {
         stop()
         self.mode = mode
+        self.plannedOrigin = plannedOrigin
         manager.activityType = mode == .walking ? .otherNavigation : .automotiveNavigation
         target = CLLocation(latitude: point.latitude, longitude: point.longitude)
-        location = nil; route = nil; error = nil; arrivalReady = false; permissionDenied = false; arrivalSamples = []; lastRouteLocation = nil; lastSampleDate = nil
+        location = nil
+        route = nil
+        plannedRoute = nil
+        locationError = nil
+        directionsError = nil
+        permissionDenied = false
+        requestedPlannedRoute = false
+        lastRouteLocation = nil
+        lastSampleDate = nil
         switch manager.authorizationStatus {
         case .notDetermined: manager.requestWhenInUseAuthorization()
         case .authorizedAlways, .authorizedWhenInUse: manager.startUpdatingLocation()
-        default: permissionDenied = true; error = "Allow location access in Settings to show directions and detect arrival."
+        default: locationAccessDenied()
         }
+        schedulePlannedRoute()
     }
 
     func stop() {
         generation += 1
         manager.stopUpdatingLocation()
         routeTask?.cancel()
+        plannedRouteTask?.cancel()
         routeTask = nil
+        plannedRouteTask = nil
         target = nil
+        plannedOrigin = nil
         arrivalSamples = []
         arrivalReady = false
     }
@@ -417,20 +436,40 @@ final class TripNavigation: NSObject, @preconcurrency CLLocationManagerDelegate 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         guard target != nil else { return }
         switch manager.authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse: permissionDenied = false; error = nil; manager.startUpdatingLocation()
+        case .authorizedAlways, .authorizedWhenInUse:
+            permissionDenied = false
+            locationError = nil
+            manager.startUpdatingLocation()
         case .denied, .restricted:
-            arrivalSamples = []
-            arrivalReady = false
-            permissionDenied = true
-            error = "Allow location access in Settings to show directions and detect arrival."
+            locationAccessDenied()
+            schedulePlannedRoute()
         default: break
         }
     }
+
+    private func locationAccessDenied() {
+        clearCurrentLocation()
+        permissionDenied = true
+        locationError = String(localized: "Allow location access in Settings to use your current position and detect arrival.")
+    }
+
+    private func clearCurrentLocation() {
+        routeTask?.cancel()
+        location = nil
+        route = nil
+        directionsError = nil
+        lastRouteLocation = nil
+        lastSampleDate = nil
+        arrivalSamples = []
+        arrivalReady = false
+    }
+
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let target, let current = locations.last, current.horizontalAccuracy >= 0,
+        guard let target, !permissionDenied, let current = locations.last, current.horizontalAccuracy >= 0,
               abs(current.timestamp.timeIntervalSinceNow) < 20 else { return }
-        location = current
         guard lastSampleDate.map({ current.timestamp > $0 }) ?? true else { return }
+        location = current
+        locationError = nil
         lastSampleDate = current.timestamp
         if Self.isArrivalSample(current, target: target) {
             arrivalSamples = Array(arrivalSamples.filter { Self.isArrivalSample($0, target: target) }.suffix(1)) + [current]
@@ -444,21 +483,60 @@ final class TripNavigation: NSObject, @preconcurrency CLLocationManagerDelegate 
         let ticket = generation
         routeTask = Task {
             defer { if ticket == generation { routeTask = nil } }
-            let request = MKDirections.Request()
-            request.source = MKMapItem(placemark: MKPlacemark(coordinate: current.coordinate))
-            request.destination = MKMapItem(placemark: MKPlacemark(coordinate: target.coordinate))
-            request.transportType = mode == .walking ? .walking : .automobile
-            let directions = MKDirections(request: request)
             do {
-                let response = try await withTaskCancellationHandler { try await directions.calculate() } onCancel: { directions.cancel() }
+                let result = try await calculateRoute(from: current.coordinate, to: target.coordinate, mode: mode)
                 guard !Task.isCancelled, ticket == generation else { return }
-                route = response.routes.first
-                error = route == nil ? "Directions are unavailable. Try again." : nil
-            } catch { if !Task.isCancelled, ticket == generation { self.error = "Directions are unavailable. Try again."; lastRouteLocation = nil } }
+                route = result
+                directionsError = result == nil ? String(localized: "Directions are unavailable. Try again.") : nil
+            } catch {
+                guard !Task.isCancelled, ticket == generation else { return }
+                directionsError = String(localized: "Directions are unavailable. Try again.")
+                lastRouteLocation = nil
+            }
         }
     }
+
+    private func schedulePlannedRoute() {
+        guard plannedRouteTask == nil, !requestedPlannedRoute, let plannedOrigin, let target else { return }
+        let ticket = generation
+        plannedRouteTask = Task {
+            defer { if ticket == generation { plannedRouteTask = nil } }
+            // Give a fresh device fix priority on entry. The planned origin never feeds arrival detection.
+            do {
+                try await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, ticket == generation, location == nil else { return }
+                requestedPlannedRoute = true
+                let origin = CLLocationCoordinate2D(latitude: plannedOrigin.latitude, longitude: plannedOrigin.longitude)
+                let result = try await calculateRoute(from: origin, to: target.coordinate, mode: mode)
+                guard !Task.isCancelled, ticket == generation else { return }
+                plannedRoute = result
+            } catch {
+                // Existing planned metrics and map pins remain available if MapKit cannot calculate a route.
+            }
+        }
+    }
+
+    private func calculateRoute(from origin: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D,
+                                mode: PlanningMode) async throws -> MKRoute? {
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: origin))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
+        request.transportType = mode == .walking ? .walking : .automobile
+        let directions = MKDirections(request: request)
+        let response = try await withTaskCancellationHandler { try await directions.calculate() } onCancel: { directions.cancel() }
+        return response.routes.first
+    }
+
     func locationManager(_ manager: CLLocationManager, didFailWithError error: any Error) {
-        self.error = "Current location is unavailable. Check your location settings."
+        guard target != nil else { return }
+        if (error as? CLError)?.code == .denied {
+            locationAccessDenied()
+        } else {
+            guard location.map({ abs($0.timestamp.timeIntervalSinceNow) < 20 }) != true else { return }
+            clearCurrentLocation()
+            locationError = String(localized: "Waiting for your current location.")
+        }
+        schedulePlannedRoute()
     }
 }
 

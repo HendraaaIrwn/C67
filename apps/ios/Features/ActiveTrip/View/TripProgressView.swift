@@ -14,11 +14,14 @@ struct TripProgressView: View {
         if let trip = presenter.trips.first(where: { $0.id == tripID }) {
             let issue = presenter.issues[.activity(tripID)]
             let target = trip.pendingEndpoint ?? trip.nextStop?.location
+            let startingPoint = trip.completedStopIDs.isEmpty && trip.pendingEndpoint == nil ? trip.input.origin : nil
             TripProgressContent(trip: trip, isBusy: presenter.isBusy, error: issue?.message,
                                 recovery: recovery(for: issue, trip: trip),
-                                route: navigation.route, locationError: navigation.error, locationPermissionDenied: navigation.permissionDenied,
+                                route: navigation.route, plannedRoute: navigation.plannedRoute, startingPoint: startingPoint,
+                                hasCurrentLocation: navigation.location != nil, locationError: navigation.error,
+                                locationPermissionDenied: navigation.permissionDenied,
                                 openDirections: {
-                                    if let target { navigation.start(to: target, mode: trip.input.mode) }
+                                    startNavigation(trip, target: target, startingPoint: startingPoint)
                                 }, openSettings: {
                                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                                 }, openMaps: {
@@ -30,11 +33,14 @@ struct TripProgressView: View {
                                     }
                                 }, arrive: { send(.arrive, trip: trip) },
                                 arriveAtEndpoint: { send(.arriveAtEndpoint, trip: trip) },
-                                completeVisit: { send(.completeStop, trip: trip) }, returnToTrip: { dismiss() })
+                                completeVisit: { send(.completeStop, trip: trip) }, returnToTrip: { dismiss() },
+                                returnToStartingPoint: {
+                                    PlanningDirections.open(trip.input.origin, name: String(localized: "Starting point"), mode: trip.input.mode)
+                                })
                 .refreshable { await presenter.load(resumesJobs: false) }
-                .task(id: trip.revision) { startNavigation(trip, target: target) }
+                .task(id: trip.revision) { startNavigation(trip, target: target, startingPoint: startingPoint) }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { startNavigation(trip, target: target) }
+                    if phase == .active { startNavigation(trip, target: target, startingPoint: startingPoint) }
                     else { navigation.stop() }
                 }
                 .onChange(of: navigation.arrivalReady) { _, ready in
@@ -55,12 +61,12 @@ struct TripProgressView: View {
         }
     }
 
-    private func startNavigation(_ trip: PersonalPlanningTrip, target: PlanningPoint?) {
+    private func startNavigation(_ trip: PersonalPlanningTrip, target: PlanningPoint?, startingPoint: PlanningPoint?) {
         guard scenePhase == .active, trip.status == .active, trip.currentStopID == nil, let target else {
             navigation.stop()
             return
         }
-        navigation.start(to: target, mode: trip.input.mode)
+        navigation.start(to: target, mode: trip.input.mode, plannedOrigin: trip.synthetic ? nil : startingPoint)
     }
 
     private func confirmAutomaticArrival(_ trip: PersonalPlanningTrip, target: PlanningPoint?) {

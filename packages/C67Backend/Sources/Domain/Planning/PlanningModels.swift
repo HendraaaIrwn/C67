@@ -256,9 +256,10 @@ public struct PersonalPlanningTrip: Equatable, Codable, Sendable, Identifiable {
     public var completedStopIDs: [UUID]
     public var currentStopID: UUID?
     public var currentArrivedAt: Date?
+    public var visitedAtByStopID: [UUID: Date]?
     public var synthetic: Bool
     public var createdAt: Date
-    public init(id: UUID, title: String, revision: Int, status: PersonalTripStatus, input: PlanningInput, plan: PlanProposal, completedStopIDs: [UUID], currentStopID: UUID? = nil, currentArrivedAt: Date? = nil, synthetic: Bool, createdAt: Date) {
+    public init(id: UUID, title: String, revision: Int, status: PersonalTripStatus, input: PlanningInput, plan: PlanProposal, completedStopIDs: [UUID], currentStopID: UUID? = nil, currentArrivedAt: Date? = nil, visitedAtByStopID: [UUID: Date]? = nil, synthetic: Bool, createdAt: Date) {
         self.id = id
         self.title = title
         self.revision = revision
@@ -268,6 +269,7 @@ public struct PersonalPlanningTrip: Equatable, Codable, Sendable, Identifiable {
         self.completedStopIDs = completedStopIDs
         self.currentStopID = currentStopID
         self.currentArrivedAt = currentArrivedAt
+        self.visitedAtByStopID = visitedAtByStopID
         self.synthetic = synthetic
         self.createdAt = createdAt
     }

@@ -126,6 +126,11 @@ public actor MockPlanningRepository: PlanningRepository {
             trip.plan.stops[index].departureAt = Date().addingTimeInterval(Double(trip.plan.stops[index].visitSeconds))
         case .completeStop:
             guard trip.status == .active, let next, next.id == event.stopID, trip.currentStopID == next.id else { throw PlanningError.invalidInput }
+            if let arrivedAt = trip.currentArrivedAt {
+                var visits = trip.visitedAtByStopID ?? [:]
+                visits[next.id] = arrivedAt
+                trip.visitedAtByStopID = visits
+            }
             trip.completedStopIDs.append(next.id); trip.currentStopID = nil; trip.currentArrivedAt = nil
             if trip.completedStopIDs.count == trip.plan.stops.count { trip.status = .completed }
         case .arriveAtEndpoint: throw PlanningError.invalidInput
