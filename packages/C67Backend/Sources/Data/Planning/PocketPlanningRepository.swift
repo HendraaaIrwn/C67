@@ -40,6 +40,7 @@ public actor PocketPlanningRepository: PlanningRepository {
     private let connection: any PocketConnectionProviding
     private let storageURL: URL?
     private let synthetic: Bool
+    private let currentOrderingOnly: Bool
     private let jobClock: @Sendable () -> Date
     private var accountDataErased = false
     private var configurationRevision = 0
@@ -56,14 +57,18 @@ public actor PocketPlanningRepository: PlanningRepository {
     private let logger = Logger(subsystem: "io.pibeebee.c67", category: "pocket-planning")
 
     public init(services: PocketPlanningServices, connection: any PocketConnectionProviding, storageURL: URL?, synthetic: Bool = false,
-                requiresExternalAIConsent: Bool = false, externalAIDisclosure: String? = nil) throws {
+                requiresExternalAIConsent: Bool = false, externalAIDisclosure: String? = nil,
+                currentOrderingOnly: Bool = false) throws {
         try self.init(services: services, connection: connection, storageURL: storageURL, synthetic: synthetic,
-                      jobClock: { .now }, requiresExternalAIConsent: requiresExternalAIConsent, externalAIDisclosure: externalAIDisclosure)
+                      jobClock: { .now }, requiresExternalAIConsent: requiresExternalAIConsent, externalAIDisclosure: externalAIDisclosure,
+                      currentOrderingOnly: currentOrderingOnly)
     }
 
     init(services: PocketPlanningServices, connection: any PocketConnectionProviding, storageURL: URL?,
          synthetic: Bool, jobClock: @escaping @Sendable () -> Date,
-         requiresExternalAIConsent: Bool = false, externalAIDisclosure: String? = nil) throws {
+         requiresExternalAIConsent: Bool = false, externalAIDisclosure: String? = nil,
+         currentOrderingOnly: Bool = false) throws {
+        self.currentOrderingOnly = currentOrderingOnly
         self.requiresExternalAIConsent = requiresExternalAIConsent
         self.externalAIDisclosure = externalAIDisclosure
         self.services = services; self.connection = connection; self.storageURL = storageURL; self.synthetic = synthetic
@@ -192,6 +197,12 @@ public actor PocketPlanningRepository: PlanningRepository {
         return manual
     }
 
+    private func useCurrentOrdering(_ input: inout PlanningInput) {
+        var preferences = input.enginePreferences ?? PlanningPreferences()
+        preferences.orderingMethod = .hybridV52
+        input.enginePreferences = preferences
+    }
+
     public func requestPlan(_ request: PlanningRequest) async throws -> PlanningJob {
         try request.input.validate(purpose: request.purpose)
         let fingerprint = try Self.fingerprint(request)
@@ -202,6 +213,7 @@ public actor PocketPlanningRepository: PlanningRepository {
             guard !state.jobs.values.contains(where: { $0.id != id && $0.status == .running }) else {
                 throw PlanningError.failed("PLANNING_ALREADY_RUNNING")
             }
+            // A retried command keeps the engine and request identity already recorded with its receipt.
             startOrdering(job)
             return state.jobs[id] ?? job
         }
@@ -217,8 +229,11 @@ public actor PocketPlanningRepository: PlanningRepository {
             guard let id = request.tripID, let trip = state.trips[id], trip.revision == request.baseRevision,
                   trip.input == input, trip.status != .completed else { throw PlanningError.revisionConflict }
             if let departure = request.replacementDeparture {
-                guard trip.status == .planned, trip.plan.effectiveOrderingMethod.usesFlexibleSchedule else { throw PlanningError.invalidInput }
+                guard trip.status == .planned, currentOrderingOnly || trip.plan.effectiveOrderingMethod.usesFlexibleSchedule else {
+                    throw PlanningError.invalidInput
+                }
                 input = try Self.inputForDeparture(departure, proposal: trip.plan)
+                if currentOrderingOnly { useCurrentOrdering(&input) }
                 input = dateEditWithoutExternalAIIfNeeded(input, stops: trip.plan.stops)
             } else if trip.status == .active {
                 let remaining = trip.plan.stops.filter { !trip.completedStopIDs.contains($0.id) }
@@ -254,6 +269,13 @@ public actor PocketPlanningRepository: PlanningRepository {
                     input.enginePreferences?.lastPlaceID = nil
                 }
             }
+        }
+        if currentOrderingOnly {
+            guard request.purpose != .suggest, request.purpose != .unknown else { throw PlanningError.invalidInput }
+            useCurrentOrdering(&input)
+            try input.validate(purpose: request.purpose)
+        } else if request.purpose == .replan, input.enginePreferences?.orderingMethod?.replacesLegacyV42 == true {
+            useCurrentOrdering(&input)
         }
         let usesFlexibleSchedule = input.enginePreferences?.orderingMethod?.usesFlexibleSchedule == true
         let activeReplan = request.purpose == .replan && request.tripID.flatMap { state.trips[$0]?.status } == .active
@@ -814,7 +836,7 @@ public actor PocketPlanningRepository: PlanningRepository {
                 if requiresExternalAIConsent, needsExternalAI(job.input) { try requireExternalAIConsent(job.input) }
                 let planner = V41ItineraryPlanner(services: plannerServices(for: job.input), hours: { await self.openingHours(placeID: $0) }, synthetic: synthetic,
                                                   reserveRoute: { try await self.retainRouteBudget($0, jobID: id, revision: revision) })
-                let sourceJobs = job.input.enginePreferences?.orderingMethod?.usesV42Scheduler == true ? [job] : Array(state.jobs.values)
+                let sourceJobs = job.input.enginePreferences?.orderingMethod?.replacesLegacyV42 == true ? [job] : Array(state.jobs.values)
                 let snapshots = sourceJobs.flatMap { $0.semanticSnapshots ?? $0.semanticSnapshot.map { [$0] } ?? [] }
                 result = try await planner.plan(job, snapshots: snapshots) { snapshot in
                     try await self.retainSemanticSnapshot(snapshot, jobID: id, revision: revision)
@@ -889,6 +911,7 @@ public actor PocketPlanningRepository: PlanningRepository {
             proposal.id = UUID()
             proposal.input = input
             proposal.stops = []
+            proposal.scheduleDecision = nil
             proposal.departureAt = Date(timeIntervalSince1970: Double(minute * 60))
             proposal.finishesAt = finish
             proposal.returnTravelSeconds = travel * 60
@@ -905,16 +928,19 @@ public actor PocketPlanningRepository: PlanningRepository {
         }
         var fixed = input
         fixed.preservesPlaceOrder = true
+        let preparedHours = input.enginePreferences?.orderingMethod == .hybridV52
+            ? try await planner.prepareHours(for: input.places.filter { $0.id != remaining?.id }, requestID: job.id, batch: true)
+            : [:]
         let baseline: PlanProposal?
         var baselineFailure: PlanningScheduleFailure?
-        do { baseline = try await planner.schedule(fixed, semantic: nil, routes: routes, remainingVisit: remaining) }
+        do { baseline = try await planner.schedule(fixed, semantic: nil, routes: routes, preparedHours: preparedHours, requestID: job.id, remainingVisit: remaining) }
         catch let failure as PlanningScheduleFailure { baselineFailure = failure; baseline = nil }
         var chosen = baseline
         var improvedOrder = false
         if !input.preservesPlaceOrder, input.places.count > 1, await routes.stopReason == nil {
             do {
-                let alternative = try await planner.schedule(input, semantic: nil, routes: routes, remainingVisit: remaining)
-                if baseline == nil || (alternative.finishesAt ?? .distantFuture) < (baseline?.finishesAt ?? .distantFuture) {
+                let alternative = try await planner.schedule(input, semantic: nil, routes: routes, preparedHours: preparedHours, requestID: job.id, remainingVisit: remaining)
+                if baseline == nil || input.enginePreferences?.orderingMethod?.usesV5Scheduler == true || (alternative.finishesAt ?? .distantFuture) < (baseline?.finishesAt ?? .distantFuture) {
                     chosen = alternative
                     improvedOrder = baseline != nil && alternative.stops.map(\.id) != baseline?.stops.map(\.id)
                 }
@@ -924,7 +950,7 @@ public actor PocketPlanningRepository: PlanningRepository {
         }
         guard var proposal = chosen else { throw baselineFailure ?? PlanningScheduleFailure(code: "V41_NO_SCHEDULE", assessment: .init()) }
         proposal.input.preservesPlaceOrder = input.preservesPlaceOrder
-        if improvedOrder, let before = baseline?.finishesAt, let after = proposal.finishesAt {
+        if improvedOrder, input.enginePreferences?.orderingMethod?.usesV5Scheduler != true, let before = baseline?.finishesAt, let after = proposal.finishesAt {
             proposal.explanation = "The revised order reaches the end \(Int(before.timeIntervalSince(after) / 60)) minutes earlier."
         }
         if let arrival = trip.currentArrivedAt, let index = proposal.stops.firstIndex(where: { $0.id == trip.currentStopID }) {
@@ -1026,6 +1052,9 @@ public actor PocketPlanningRepository: PlanningRepository {
         guard let original = state.jobs[jobID], original.status == .succeeded, var proposal = original.result?.proposal,
               proposal.usesExperienceFlow, state.applied[jobID] == nil else { throw PlanningError.invalidInput }
         let revision = configurationRevision
+        if currentOrderingOnly || (proposal.effectiveOrderingMethod.replacesLegacyV42 && (departure != nil || orderedIDs != nil)) {
+            useCurrentOrdering(&proposal.input)
+        }
         var changesDay = false
         if let departure {
             guard let zone = TimeZone(identifier: proposal.input.timeZone) else { throw PlanningError.invalidInput }
@@ -1123,6 +1152,7 @@ public actor PocketPlanningRepository: PlanningRepository {
         var proposal = trip.plan
         if floor(departure.timeIntervalSince1970 / 60) != currentMinute {
             proposal.departureAt = now
+            if currentOrderingOnly { useCurrentOrdering(&proposal.input) }
             proposal = try await calculateExperienceRoute(proposal)
         }
         try Task.checkCancellation()
@@ -1138,7 +1168,9 @@ public actor PocketPlanningRepository: PlanningRepository {
         guard let original = state.trips[tripID], original.status == .planned,
               original.plan.usesExperienceFlow else { throw PlanningError.invalidInput }
         let revision = configurationRevision
-        let routed = try await calculateExperienceRoute(original.plan)
+        var proposal = original.plan
+        if currentOrderingOnly { useCurrentOrdering(&proposal.input) }
+        let routed = try await calculateExperienceRoute(proposal)
         try Task.checkCancellation()
         guard revision == configurationRevision else { throw CancellationError() }
         guard state.trips[tripID] == original else { throw PlanningError.revisionConflict }
@@ -1412,7 +1444,11 @@ public actor PocketPlanningRepository: PlanningRepository {
 
     private func calculateExperienceRoute(_ proposal: PlanProposal, reusing previous: PlanProposal? = nil) async throws -> PlanProposal {
         if proposal.input.enginePreferences?.orderingMethod?.usesFlexibleSchedule == true {
-            var input = proposal.input
+            var returnedInput = proposal.input
+            if returnedInput.enginePreferences?.orderingMethod?.replacesLegacyV42 == true {
+                returnedInput.enginePreferences?.orderingMethod = .hybridV52
+            }
+            var input = returnedInput
             let places = Dictionary(uniqueKeysWithValues: input.places.map { ($0.id, $0) })
             let stopIDs = proposal.stops.map(\.id)
             guard stopIDs.count == places.count, Set(stopIDs) == Set(places.keys) else { throw PlanningError.invalidInput }
@@ -1423,8 +1459,12 @@ public actor PocketPlanningRepository: PlanningRepository {
             input.startsAt = proposal.departureAt ?? input.startsAt
             let routes = V41RouteSession(input: input, services: services)
             let planner = V41ItineraryPlanner(services: services, hours: { await self.openingHours(placeID: $0) }, synthetic: synthetic)
-            var routed = try await planner.schedule(input, semantic: proposal.experiencePlan, routes: routes)
-            routed.input = proposal.input
+            let preparedHours = input.enginePreferences?.orderingMethod == .hybridV52
+                ? try await planner.prepareHours(for: input.places, requestID: proposal.id, batch: true)
+                : [:]
+            var routed = try await planner.schedule(input, semantic: proposal.experiencePlan, routes: routes,
+                                                    preparedHours: preparedHours, requestID: proposal.id)
+            routed.input = returnedInput
             return routed
         }
         if proposal.input.enginePreferences?.orderingMethod == .hybridV4 {
