@@ -252,7 +252,7 @@ struct PlacesRecommendationsView: View {
             .accessibilityIdentifier("recommendationsMyPlaces")
         }
         .padding(.horizontal, 4)
-        .keyframeAnimator(initialValue: CGFloat.zero, trigger: rejectedSelectionCount) { header, offset in
+        .keyframeAnimator(initialValue: CGFloat.zero, trigger: rejectedSelectionCount) { [reduceMotion] header, offset in
             header.offset(x: reduceMotion ? 0 : offset)
         } keyframes: { _ in
             KeyframeTrack {
@@ -358,7 +358,7 @@ struct PlaceSelectionStatus: View {
         }
         .animation(.snappy, value: count)
         .animation(.snappy, value: guidanceState)
-        .keyframeAnimator(initialValue: CGFloat.zero, trigger: rejectedCount) { line, offset in
+        .keyframeAnimator(initialValue: CGFloat.zero, trigger: rejectedCount) { [reduceMotion] line, offset in
             line.offset(x: reduceMotion ? 0 : offset)
         } keyframes: { _ in
             KeyframeTrack {

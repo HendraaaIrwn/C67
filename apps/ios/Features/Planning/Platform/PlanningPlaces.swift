@@ -8,8 +8,8 @@ import C67Domain
 /// A departure forecast tied to the selected origin and departure instant.
 @MainActor @Observable
 final class DepartureWeatherLoader {
-    struct Forecast {
-        enum Precipitation: Equatable { case rain, storm }
+    struct Forecast: Sendable {
+        enum Precipitation: Equatable, Sendable { case rain, storm }
 
         let temperature: Measurement<UnitTemperature>
         let condition: String
@@ -26,7 +26,7 @@ final class DepartureWeatherLoader {
         var precipitationChance: Double?
     }
 
-    static let appleWeatherName = "Apple Weather"
+    nonisolated static let appleWeatherName = "Apple Weather"
     static let openMeteoName = "Open-Meteo"
     static let openMeteoURL = URL(string: "https://open-meteo.com/")!
 
@@ -60,25 +60,9 @@ final class DepartureWeatherLoader {
         }
         async let openForecast = includesPreparationWeather ? openMeteo(origin: origin, departure: departure) : nil
         do {
-            let start = Date(timeIntervalSince1970: floor(departure.timeIntervalSince1970 / 3600) * 3600)
-            let location = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
-            let hours = try await WeatherService.shared.weather(for: location, including: .hourly(startDate: start, endDate: start.addingTimeInterval(3600)))
-            let attribution = try await WeatherService.shared.attribution
+            var value = try await Self.appleForecast(origin: origin, departure: departure)
             try Task.checkCancellation()
             guard ticket == generation else { return }
-            guard let hour = hours.first(where: { $0.date <= departure && departure < $0.date.addingTimeInterval(3600) }) else { throw URLError(.resourceUnavailable) }
-            let precipitation: Forecast.Precipitation? = switch hour.condition {
-            case .thunderstorms, .isolatedThunderstorms, .scatteredThunderstorms, .strongStorms, .tropicalStorm, .hurricane: .storm
-            case .rain, .heavyRain, .drizzle, .sunShowers: .rain
-            default: nil
-            }
-            let feelsLike = hour.apparentTemperature.converted(to: .celsius).value
-            var value = Forecast(temperature: hour.temperature, condition: hour.condition.description, symbol: hour.symbolName,
-                                 precipitation: precipitation, source: Self.appleWeatherName, sourceURL: attribution.legalPageURL,
-                                 markURL: attribution.combinedMarkLightURL, markOnDarkURL: attribution.combinedMarkDarkURL,
-                                 feelsLikeCelsius: feelsLike.isFinite ? feelsLike : nil,
-                                 uvIndex: hour.uvIndex.value >= 0 ? Double(hour.uvIndex.value) : nil,
-                                 precipitationChance: (0 ... 1).contains(hour.precipitationChance) ? hour.precipitationChance : nil)
             forecast = value
             // WeatherKit supplies the departure conditions; Open-Meteo adds direct radiation.
             let supplemental = try? await openForecast
@@ -101,6 +85,27 @@ final class DepartureWeatherLoader {
                 failure = error as? ForecastFailure ?? .temporarilyUnavailable
             }
         }
+    }
+
+    // Convert WeatherKit's older SDK types before crossing into the main actor.
+    nonisolated private static func appleForecast(origin: PlanningPoint, departure: Date) async throws -> Forecast {
+        let start = Date(timeIntervalSince1970: floor(departure.timeIntervalSince1970 / 3600) * 3600)
+        let location = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
+        let hours = try await WeatherService.shared.weather(for: location, including: .hourly(startDate: start, endDate: start.addingTimeInterval(3600)))
+        let attribution = try await WeatherService.shared.attribution
+        guard let hour = hours.first(where: { $0.date <= departure && departure < $0.date.addingTimeInterval(3600) }) else { throw URLError(.resourceUnavailable) }
+        let precipitation: Forecast.Precipitation? = switch hour.condition {
+        case .thunderstorms, .isolatedThunderstorms, .scatteredThunderstorms, .strongStorms, .tropicalStorm, .hurricane: .storm
+        case .rain, .heavyRain, .drizzle, .sunShowers: .rain
+        default: nil
+        }
+        let feelsLike = hour.apparentTemperature.converted(to: .celsius).value
+        return Forecast(temperature: hour.temperature, condition: hour.condition.description, symbol: hour.symbolName,
+                        precipitation: precipitation, source: Self.appleWeatherName, sourceURL: attribution.legalPageURL,
+                        markURL: attribution.combinedMarkLightURL, markOnDarkURL: attribution.combinedMarkDarkURL,
+                        feelsLikeCelsius: feelsLike.isFinite ? feelsLike : nil,
+                        uvIndex: hour.uvIndex.value >= 0 ? Double(hour.uvIndex.value) : nil,
+                        precipitationChance: (0 ... 1).contains(hour.precipitationChance) ? hour.precipitationChance : nil)
     }
 
     private func openMeteo(origin: PlanningPoint, departure: Date) async throws -> Forecast {

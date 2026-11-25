@@ -123,7 +123,7 @@ struct TripInterestQuestionView: View {
                 }
             }
         }
-        .keyframeAnimator(initialValue: CGFloat.zero, trigger: rejectedSelectionCount) { meter, offset in
+        .keyframeAnimator(initialValue: CGFloat.zero, trigger: rejectedSelectionCount) { [reduceMotion] meter, offset in
             meter.offset(x: reduceMotion ? 0 : offset)
         } keyframes: { _ in
             KeyframeTrack {
