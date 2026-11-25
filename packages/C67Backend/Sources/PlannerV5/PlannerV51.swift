@@ -4,8 +4,9 @@ import Foundation
 public struct PlannerV51: Sendable {
     private let planner: PlannerV5
 
-    public init(checkInBufferMinutes: Int = 15, route: @escaping PlannerV5.RouteProvider) {
-        planner = PlannerV5(route: route, checkInBufferMinutes: checkInBufferMinutes)
+    public init(checkInBufferMinutes: Int = 15, canRecover: @escaping @Sendable () async -> Bool = { true },
+                route: @escaping PlannerV5.RouteProvider) {
+        planner = PlannerV5(route: route, checkInBufferMinutes: checkInBufferMinutes, canRecover: canRecover)
     }
 
     public func plan(_ input: PlannerV5Input) async throws -> PlannerV5Result {
@@ -144,7 +145,7 @@ extension PlannerV5 {
 
     private func weatherReading(_ series: PlannerV51WeatherSeries, start: Date, end: Date) -> PlannerV51WeatherReading {
         let unknown = PlannerV51WeatherReading(kind: series.kind, average: nil, excessIntegral: nil,
-                                              source: nil, threshold: series.threshold)
+                                               source: nil, threshold: series.threshold)
         guard end > start, !series.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               series.threshold.map({ $0.isFinite && (series.kind == .apparentTemperature || $0 >= 0) }) ?? true else {
             return unknown
@@ -203,7 +204,7 @@ extension PlannerV5 {
 
         let alternative = schedules.first { candidate in
             guard candidate.departsAt != selected.departsAt ||
-                    candidate.visits.map(\.placeID) != selected.visits.map(\.placeID) else { return false }
+                candidate.visits.map(\.placeID) != selected.visits.map(\.placeID) else { return false }
             let difference = outdoorTradeoff(candidate, against: selected)
             return candidate.drivingMinutes < selected.drivingMinutes ||
                 checkInShortfall(candidate) < checkInShortfall(selected) || difference.gain

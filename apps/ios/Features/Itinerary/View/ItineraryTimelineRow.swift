@@ -25,6 +25,7 @@ struct ItineraryTimelineRow: View {
     var moveUp: (() -> Void)? = nil
     var moveDown: (() -> Void)? = nil
     let cardHeightChanged: (CGFloat) -> Void
+    var chooseCoffeeVisit: ((CoffeeVisitStyle) -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -44,7 +45,7 @@ struct ItineraryTimelineRow: View {
                 ItineraryStopCard(stop: stop, zone: zone, details: details, isEditable: isEditable, weatherEvidence: weatherEvidence, edit: edit,
                                   showsEstimatedTimes: orderingOnly, symbol: symbol,
                                   reorderChanged: reorderChanged, reorderEnded: reorderEnded, reorderCancelled: reorderCancelled,
-                                  moveUp: moveUp, moveDown: moveDown)
+                                  moveUp: moveUp, moveDown: moveDown, chooseCoffeeVisit: chooseCoffeeVisit)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeightChanged($0) }
                     .shadow(color: .black.opacity(isLifted ? 0.25 : 0), radius: 10, y: 5)
                     .animation(liftAnimation, value: isLifted)

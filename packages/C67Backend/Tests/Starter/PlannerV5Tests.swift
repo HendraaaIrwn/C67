@@ -61,7 +61,7 @@ struct PlannerV5Tests {
         var (input, museum, _) = Self.fixture(museumMinutes: 60)
         input.trip.preservesPlaceOrder = true
         input.trip.places[0].activitySession = .init(startsAt: Self.at(15, 45), endsAt: Self.at(16, 45),
-                                                    arriveBy: Self.at(15, 35))
+                                                     arriveBy: Self.at(15, 35))
         let result = try await Self.planner.plan(input)
         #expect(result.status == .conflicts)
         #expect(result.issues == [.checkIn(museum)])
@@ -147,7 +147,7 @@ struct PlannerV5Tests {
         let clock = ContinuousClock()
         let oldStart = clock.now
         let old = try await V41ItineraryPlanner(services: services, hours: { _ in .init(status: "unavailable") },
-                                              synthetic: true).plan(job)
+                                                synthetic: true).plan(job)
         let oldElapsed = oldStart.duration(to: clock.now)
         let newStart = clock.now
         let new = try await Self.planner.plan(input)
@@ -191,9 +191,9 @@ struct PlannerV5Tests {
         options.semanticAssistance = .disabled
         trip.enginePreferences = options
         let parkContext = PlannerV5VisitContext(activity: "Photography", activitySource: .traveller,
-                                                 exposure: .outdoor, exposureSource: .traveller, goals: [.goldenHour],
-                                                 light: [.goldenHour(.init(start: at(17, 10), end: at(17, 35)))],
-                                                 lightSource: "Synthetic solar window")
+                                                exposure: .outdoor, exposureSource: .traveller, goals: [.goldenHour],
+                                                light: [.goldenHour(.init(start: at(17, 10), end: at(17, 35)))],
+                                                lightSource: "Synthetic solar window")
         return (.init(trip: trip, visits: [park.id: parkContext]), museum.id, park.id)
     }
 }

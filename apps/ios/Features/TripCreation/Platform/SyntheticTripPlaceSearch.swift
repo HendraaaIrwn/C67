@@ -39,8 +39,18 @@ import C67Domain
             try Task.checkCancellation()
             let includesPinDetails = ProcessInfo.processInfo.arguments.contains("--itinerary-pin-details-fixture")
             let usesHoursFixture = ProcessInfo.processInfo.environment["C67_SYNTHETIC_HOURS_PORT"] != nil
+            let usesDurationFixtures = ProcessInfo.processInfo.arguments.contains("--v52-visit-duration-fixture")
             return try PocketIntegrationFixture.searchablePlaces().enumerated().map { index, stop in
                 var place = stop
+                if usesDurationFixtures {
+                    switch index {
+                    case 0: place.name = "Synthetic Museum Polri"; place.categories = ["MKPOICategoryMuseum"]
+                    case 1: place.name = "Synthetic Café"; place.categories = ["MKPOICategoryCafe"]
+                    case 2: place.name = "Synthetic Park"; place.categories = ["MKPOICategoryPark"]
+                    case 3: place.name = "Synthetic Restaurant"; place.categories = ["MKPOICategoryRestaurant"]
+                    default: break
+                    }
+                }
                 if usesHoursFixture { place.sourceID = "apple:I\(index + 1)" }
                 if includesPinDetails, !usesHoursFixture, place.name == "Fixture Japanese 1" {
                     place.sourceID = "apple:I123A"

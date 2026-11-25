@@ -57,26 +57,40 @@ extension XCTestCase {
             XCTAssertTrue(app.buttons["Skip"].waitForExistence(timeout: 5))
             app.buttons["Skip"].tap()
         } else {
-            XCTAssertTrue(app.buttons["addPlacesNext"].waitForExistence(timeout: 5))
-            app.buttons["addPlacesNext"].tap()
+            let search = app.searchFields.firstMatch
+            XCTAssertTrue(search.waitForExistence(timeout: 5))
+            search.tap()
+            search.typeText("coffee\n")
+            let place = app.buttons["Add Synthetic coffee shop"]
+            XCTAssertTrue(place.waitForExistence(timeout: 8))
+            place.tap()
+            let next = app.buttons["addPlacesNext"]
+            XCTAssertTrue(next.isEnabled)
+            next.tap()
         }
     }
 
     @MainActor func reviewMockItinerary(_ app: XCUIApplication) {
         openMockCreation(app)
-        XCTAssertTrue(app.buttons["Next"].waitForExistence(timeout: 5))
-        app.buttons["Next"].tap()
-        XCTAssertTrue(app.navigationBars["Itinerary"].waitForExistence(timeout: 10))
+        let next = app.buttons["mainSpotNext"]
+        XCTAssertTrue(next.waitForExistence(timeout: 5), app.debugDescription)
+        next.tap()
+        XCTAssertTrue(app.scrollViews["itineraryList"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor func saveMockItinerary(_ app: XCUIApplication) {
         let save = app.buttons["Save this trip"]
         scrollToTripControl(save, in: app)
         save.tap()
-        XCTAssertTrue(app.alerts["Save Itinerary"].waitForExistence(timeout: 5))
-        app.alerts["Save Itinerary"].buttons["Save"].tap()
+        let dialog = app.alerts["Save Itinerary"]
+        XCTAssertTrue(dialog.waitForExistence(timeout: 5))
+        guard let name = dialog.textFields.firstMatch.value as? String, !name.isEmpty else {
+            XCTFail("Expected the proposed trip name")
+            return
+        }
+        dialog.buttons["Save"].tap()
         let go = app.buttons["Save this trip"]
-        XCTAssertTrue(app.navigationBars["Synthetic coffee afternoon"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars[name].waitForExistence(timeout: 10))
         scrollToTripControl(go, in: app)
         XCTAssertEqual(go.label, "Go Trip")
     }

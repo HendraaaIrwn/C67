@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import MapKit
 import C67Domain
 
 struct TripProgressView: View {
@@ -26,17 +27,14 @@ struct TripProgressView: View {
                                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                                 }, openMaps: {
                                     if let endpoint = trip.pendingEndpoint {
-                                        let name = trip.plan.input.enginePreferences?.endPointName ?? String(localized: "Starting point")
+                                        let name = trip.plan.input.enginePreferences?.endPointName ?? String(localized: "Trip end point")
                                         PlanningDirections.open(endpoint, name: name, mode: trip.input.mode)
                                     } else if let next = trip.nextStop {
                                         PlanningDirections.open(next, mode: trip.input.mode)
                                     }
                                 }, arrive: { send(.arrive, trip: trip) },
                                 arriveAtEndpoint: { send(.arriveAtEndpoint, trip: trip) },
-                                completeVisit: { send(.completeStop, trip: trip) }, returnToTrip: { dismiss() },
-                                returnToStartingPoint: {
-                                    PlanningDirections.open(trip.input.origin, name: String(localized: "Starting point"), mode: trip.input.mode)
-                                })
+                                completeVisit: { send(.completeStop, trip: trip) }, returnToTrip: { dismiss() })
                 .refreshable { await presenter.load(resumesJobs: false) }
                 .task(id: trip.revision) { startNavigation(trip, target: target, startingPoint: startingPoint) }
                 .onChange(of: scenePhase) { _, phase in
@@ -92,5 +90,161 @@ struct TripProgressView: View {
     private func send(_ kind: PlanningEventKind, trip: PersonalPlanningTrip) {
         guard !presenter.isBusy else { return }
         Task { await presenter.event(kind, trip: trip) }
+    }
+}
+
+struct TripReturnRouteView: View {
+    let trip: PersonalPlanningTrip
+    let isDesignPreview: Bool
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var navigation = TripNavigation()
+    @State private var mapPosition: MapCameraPosition = .automatic
+
+    private var lastStop: ScheduledPlanningStop? {
+        trip.completedStopIDs.last.flatMap { id in trip.plan.stops.first { $0.id == id } }
+    }
+
+    private var route: MKRoute? { navigation.route ?? navigation.plannedRoute }
+    private var instruction: (distance: String, instruction: String)? {
+        if navigation.arrivalReady { return nil }
+        if isDesignPreview { return ("80 m", String(localized: "Turn right onto Jalan Cikini Raya")) }
+        guard let step = route?.steps.first(where: { $0.distance > 0 && !$0.instructions.isEmpty }) else { return nil }
+        return (TripProgressContent.distance(step.distance), step.instructions)
+    }
+
+    private var usesLastStop: Bool {
+        lastStop != nil && (isDesignPreview || (navigation.route == nil && (navigation.location == nil || navigation.plannedRoute != nil)))
+    }
+
+    private var routeLine: MKPolyline? {
+        if let route { return route.polyline }
+        guard isDesignPreview, let lastStop else { return nil }
+        let coordinates = [coordinate(lastStop.location), coordinate(trip.input.origin)]
+        return MKPolyline(coordinates: coordinates, count: coordinates.count)
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            Map(position: $mapPosition) {
+                Annotation("Trip starting point", coordinate: coordinate(trip.input.origin)) {
+                    Image(systemName: "flag.fill")
+                        .font(.headline)
+                        .foregroundStyle(AppColor.accent)
+                        .padding(8)
+                        .background(AppColor.surface, in: .circle)
+                        .accessibilityLabel("Trip starting point")
+                }
+                if usesLastStop, let lastStop {
+                    Marker(lastStop.name, coordinate: coordinate(lastStop.location))
+                }
+                if navigation.location != nil { UserAnnotation() }
+                if let routeLine { TripRouteLine(polyline: routeLine) }
+            }
+            .accessibilityIdentifier("tripReturnMap")
+            .onChange(of: route, initial: true) { _, _ in focusRoute() }
+            .overlay(alignment: .trailing) {
+                if routeLine != nil { TripRouteFocusButton(action: focusRoute) }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                let instruction = instruction
+                TripRouteBanner(symbol: navigation.arrivalReady ? "checkmark" : instruction == nil ? "flag.fill" : "arrow.up.forward",
+                                heading: navigation.arrivalReady ? "You’ve arrived" : "Returning to starting point",
+                                destination: String(localized: "Starting point"), instruction: instruction,
+                                routeContext: usesLastStop ? "Route from last visited stop" : "Route preview")
+                    .accessibilityIdentifier("tripReturnBanner")
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                TripRoutePanel(availableHeight: geometry.size.height) {
+                    routeDetails
+                }
+                .accessibilityIdentifier("tripReturnPanel")
+            }
+        }
+        .background(AppColor.canvas)
+        .task(id: scenePhase == .background) {
+            if scenePhase == .background { navigation.stop() }
+            else if !isDesignPreview { startRoute() }
+        }
+        .onDisappear { navigation.stop() }
+    }
+
+    private var routeDetails: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            let distance = isDesignPreview ? "1.2 km" : route.map { TripProgressContent.distance($0.distance) }
+            let minutes = isDesignPreview ? 6 : route.map { max(1, Int(ceil($0.expectedTravelTime / 60))) }
+            TripRouteMetrics(distance: distance, minutes: minutes, hasRoute: navigation.route != nil, walking: trip.input.mode == .walking)
+                .accessibilityIdentifier("tripReturnEstimate")
+            HStack(spacing: 10) {
+                PlaceThumbnail(imageName: nil, systemImage: "flag.fill", placeholderBackground: AppColor.accent.opacity(0.10))
+                Text("Starting point")
+                    .font(.title3.bold())
+                    .accessibilityIdentifier("tripReturnDestination")
+            }
+            if usesLastStop, let lastStop {
+                Text("From last visited stop · \(lastStop.name)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else if navigation.location != nil {
+                Text("From your current location")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            if isDesignPreview {
+                Text("Design preview · sample route and estimates")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if route == nil && !navigation.arrivalReady {
+                routeStatus
+            }
+            if navigation.permissionDenied {
+                Button("Enable current location in Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                }
+                .font(.subheadline)
+                .frame(minHeight: 44)
+            }
+            Divider()
+            Button {
+                dismiss()
+            } label: {
+                Text("Back to summary")
+                    .foregroundStyle(AppColor.onBrand)
+            }
+            .buttonStyle(TripPrimaryButtonStyle())
+            .accessibilityIdentifier("tripReturnClose")
+        }
+        .padding(16)
+        .frame(maxWidth: 640, alignment: .leading)
+    }
+
+    @ViewBuilder private var routeStatus: some View {
+        if navigation.directionsError != nil || navigation.plannedDirectionsUnavailable {
+            Text("Directions are unavailable.")
+                .font(.subheadline)
+            Button("Try again", action: startRoute)
+                .buttonStyle(.bordered)
+        } else if lastStop != nil || navigation.location != nil {
+            ProgressView("Finding directions…")
+                .font(.subheadline)
+        } else if !navigation.permissionDenied {
+            Text("Waiting for your current location.")
+                .font(.subheadline)
+            Button("Try again", action: startRoute)
+                .buttonStyle(.bordered)
+        }
+    }
+
+    private func focusRoute() {
+        mapPosition = routeLine.map(TripRouteLine.cameraPosition) ?? .automatic
+    }
+
+    private func coordinate(_ point: PlanningPoint) -> CLLocationCoordinate2D {
+        .init(latitude: point.latitude, longitude: point.longitude)
+    }
+
+    private func startRoute() {
+        navigation.start(to: trip.input.origin, mode: trip.input.mode, plannedOrigin: lastStop?.location)
     }
 }

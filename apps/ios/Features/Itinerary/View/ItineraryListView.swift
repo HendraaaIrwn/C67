@@ -2,6 +2,7 @@ import SwiftUI
 import C67Domain
 
 struct ItineraryListView: View {
+    var chooseCoffeeVisit: ((UUID, CoffeeVisitStyle) -> Void)? = nil
     private struct StopDrag {
         let source: UUID
         let originalIndex: Int
@@ -58,6 +59,7 @@ struct ItineraryListView: View {
     var allowsEditing = true
     var navigationTitle = "Itinerary"
     var retry: (() -> Void)?
+    var reviewShorterVisit: (() -> Void)?
     var refreshRoute: (() -> Void)?
     var lookupHours: ((String) async -> PlanningHoursLookup)? = nil
     let edit: (UUID?) -> Void
@@ -78,6 +80,7 @@ struct ItineraryListView: View {
     var body: some View {
         let stops = proposal.stopsWithExperienceEstimates
         let isExperience = proposal.usesExperienceFlow
+        let preparesForTrip = showsPreparation && proposal.feasible && !stops.isEmpty
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if isExperience {
@@ -107,7 +110,8 @@ struct ItineraryListView: View {
 
                 if let error {
                     RecoveryNotice(title: "Itinerary needs attention", message: error,
-                                   primary: retry.map { .init(title: retryTitle, perform: $0) })
+                                   primary: retry.map { .init(title: retryTitle, perform: $0) },
+                                   secondary: reviewShorterVisit.map { .init(title: "Review shorter visit", perform: $0) })
                 }
                 // Planner diagnostics (review, opening hours, trip details, return leg) show in developer builds only.
                 if AppMode.current.showsPlanningDiagnostics, let assessment = proposal.scheduleAssessment, proposal.feasible {
@@ -118,12 +122,16 @@ struct ItineraryListView: View {
                 }
 
                 ItineraryDepartureCard(proposal: proposal, departureForecast: departureForecast,
+                                       includesPreparationWeather: preparesForTrip,
                                        weatherAdvice: departureWeather, isDesignPreview: isDesignPreview,
                                        editDeparture: editDeparture, editEndpoints: isExperience ? editEndpoints : nil)
 
-                if showsPreparation, proposal.feasible, !stops.isEmpty {
+                if preparesForTrip {
                     ItineraryPreparationCard(
                         forecast: departureForecast.forecast(for: proposal.input.origin, departure: proposal.estimatedExperienceDeparture),
+                        outdoor: isDesignPreview ? [] : proposal.scheduleDecision?.outdoor ?? [],
+                        stops: stops,
+                        evidence: proposal.evidence,
                         hoursConflicts: hoursConflicts(in: stops),
                         hasDefaultTravelTime: proposal.hasExperienceTravelFallback
                     )
@@ -389,7 +397,8 @@ struct ItineraryListView: View {
                                     reorderChanged: reorder, reorderEnded: { finishDrag($0, source: stop.id, stops: stops) },
                                     reorderCancelled: { if drag?.source == stop.id { cancelDrag() } },
                                     isLifted: lifted, isReordering: drag != nil || pendingOrder != nil,
-                                    moveUp: up, moveDown: down, cardHeightChanged: { cardHeights[stop.id] = $0 })
+                                    moveUp: up, moveDown: down, cardHeightChanged: { cardHeights[stop.id] = $0 },
+                                    chooseCoffeeVisit: chooseCoffeeVisit.map { choose in { choose(stop.id, $0) } })
     }
 
     @ViewBuilder private func tripEdits(_ edit: @escaping (ItineraryEditRoute) -> Void) -> some View {

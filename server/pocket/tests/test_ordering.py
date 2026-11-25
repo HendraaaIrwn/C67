@@ -16,7 +16,7 @@ import unittest
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from ordering import Environment, OrderingResolver, request_context, candidate_orders
+from ordering import Environment, OrderingResolver, request_context, candidate_orders, verify_coffee_visits
 from server import AuthenticationUnavailable, Jobs, Handler, ThreadingHTTPServer
 
 
@@ -57,6 +57,55 @@ class NoWeather:
 
 
 class OrderingTests(unittest.TestCase):
+    def test_compact_coffee_duration_is_bound_to_branch_evidence(self):
+        request = body(count=2)
+        request["orderingMethod"] = "hybrid_v4_2"
+        services = ["Takeaway only", "Dine-in seating available"]
+        for i, place in enumerate(request["places"]):
+            place.update(researchCoffee=True, address=f"Jalan Contoh {i + 1}")
+
+        def model(prompt, context):
+            response = compact_answer(context)
+            response["coffeeInsights"] = [dict(placeID=p["id"], style=style, sourceID="C1",
+                branchQuote=f'{p["address"]} {service}', serviceQuote=service)
+                for p, style, service in zip(context["places"], ("takeaway", "sit_down"), services)]
+            return response, "gpt-6-luna"
+
+        def read(place):
+            index = int(place["address"][-1]) - 1
+            return [dict(id="C1", url=f"https://example.test/branch/{index}",
+                         text=f'{place["address"]} {services[index]}')]
+
+        with patch("ordering.coffee_documents", side_effect=read):
+            result = OrderingResolver(model, NoWeather()).resolve(request)
+        self.assertEqual([visit["style"] for visit in result["coffeeVisits"]], ["takeaway", "sit_down"])
+        self.assertEqual([stop["duration"]["minMinutes"] for stop in result["stops"]], [10, 30])
+        self.assertTrue(all(visit["sourceURL"].startswith("https://") for visit in result["coffeeVisits"]))
+
+    def test_wrong_branch_and_generic_takeaway_remain_unknown(self):
+        places = [dict(id="a", address="Jalan Contoh 1"), dict(id="b", address="Jalan Contoh 2")]
+        documents = {
+            "a": [dict(id="C1", url="https://example.test/wrong", text="Jalan Contoh 3 Takeaway only")],
+            "b": [dict(id="C1", url="https://example.test/generic", text="Jalan Contoh 2 Takeaway available")],
+        }
+        claims = [dict(placeID="a", style="takeaway", sourceID="C1", branchQuote="Jalan Contoh 3 Takeaway only", serviceQuote="Takeaway only"),
+                  dict(placeID="b", style="takeaway", sourceID="C1", branchQuote="Jalan Contoh 2 Takeaway available", serviceQuote="Takeaway available")]
+        self.assertEqual(verify_coffee_visits(places, documents, claims),
+                         [dict(placeID="a", style="unknown"), dict(placeID="b", style="unknown")])
+
+    def test_coffee_evidence_rejects_other_branches_and_negated_service(self):
+        places = [dict(id="a", name="Cafe Merit", address="Jalan Sudirman 10")]
+        for text, quote in [
+            ("Cafe Merit: Jalan Sudirman 10. The Jalan Thamrin location has dine-in seating.", "dine-in seating"),
+            ("Cafe Merit: Jalan Sudirman 10, but the Thamrin branch has dine-in seating.", "dine-in seating"),
+            ("Cafe Merit: Jalan Sudirman 10: Dine-in seating is not available.", "Dine-in seating"),
+        ]:
+            with self.subTest(text=text):
+                documents = {"a": [dict(id="C1", url="https://example.test/branches", text=text)]}
+                claims = [dict(placeID="a", style="sit_down", sourceID="C1",
+                               branchQuote=text[:text.index(quote) + len(quote)], serviceQuote=quote)]
+                self.assertEqual(verify_coffee_visits(places, documents, claims), [dict(placeID="a", style="unknown")])
+
     def test_running_order_exposes_actual_activity_only_to_its_owner(self):
         checking_weather, release_weather = threading.Event(), threading.Event()
         running_luna, release_luna = threading.Event(), threading.Event()

@@ -14,6 +14,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import uuid
 
+import httpx
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from resolution import Resolver, public_url, WebReader, MODEL
 from server import Handler, Jobs, ThreadingHTTPServer, stream_response, responses_stream
@@ -136,9 +138,37 @@ class ResolutionTests(unittest.TestCase):
         finally:reader.close()
 
     def test_source_dns_cannot_point_to_loopback_or_lan(self):
-        for address in ['127.0.0.1','192.168.1.2','::1','169.254.169.254']:
+        for address in ['127.0.0.1','192.168.1.2','::1','169.254.169.254','224.0.0.1']:
             with patch('resolution.socket.getaddrinfo',return_value=[(socket.AF_INET,socket.SOCK_STREAM,6,'',(address,443))]):
                 with self.assertRaises(ValueError): public_url('https://example.com/page')
+
+    def test_coffee_source_uses_validated_addresses_and_checks_redirects(self):
+        seen = []
+
+        def send(request):
+            seen.append((request.url.host, request.headers["Host"], request.extensions["sni_hostname"], request.url.path))
+            if request.url.path == "/branch":
+                return httpx.Response(302, headers={"Location": "https://redirect.example.test/menu"})
+            return httpx.Response(200, text="Dine-in available")
+
+        def lookup(host, port, **kwargs):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (addresses[host], port))]
+
+        addresses = {"example.test": "8.8.8.8", "redirect.example.test": "127.0.0.1"}
+        reader = WebReader(public_https_only=True)
+        reader.close()
+        reader.client = httpx.Client(transport=httpx.MockTransport(send))
+        try:
+            with patch("resolution.socket.getaddrinfo", side_effect=lookup):
+                with self.assertRaises(ValueError):
+                    reader.get("https://example.test/branch")
+                self.assertEqual(seen, [("8.8.8.8", "example.test", "example.test", "/branch")])
+                addresses["redirect.example.test"] = "1.1.1.1"
+                status, _, final = reader.get("https://example.test/branch")
+                self.assertEqual((status, final), (200, "https://redirect.example.test/menu"))
+                self.assertEqual(seen[-1], ("1.1.1.1", "redirect.example.test", "redirect.example.test", "/menu"))
+        finally:
+            reader.close()
 
 
 class StreamTests(unittest.TestCase):

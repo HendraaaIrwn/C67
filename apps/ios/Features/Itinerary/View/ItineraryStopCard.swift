@@ -15,6 +15,7 @@ struct ItineraryStopCard: View {
     var reorderCancelled: (() -> Void)?
     var moveUp: (() -> Void)? = nil
     var moveDown: (() -> Void)? = nil
+    var chooseCoffeeVisit: ((CoffeeVisitStyle) -> Void)? = nil
     @Environment(\.locale) private var locale
     @GestureState private var isDragging = false
 
@@ -75,6 +76,26 @@ struct ItineraryStopCard: View {
                     .accessibilityIdentifier("itineraryEdit-\(stop.id)")
             } else {
                 visitTimeRow
+            }
+
+            if let advice = stop.visitDurationAdvice {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(stop.visitSeconds / 60) min · \(advice.rationale)")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("itineraryVisitDuration-\(stop.id)")
+                    if let url = advice.sourceURL { Link("Branch source", destination: url) }
+                    if advice.asksCoffeeIntent, let chooseCoffeeVisit {
+                        Text("Pick up coffee or stay?").fontWeight(.semibold)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Button("Pick up · 15 min") { chooseCoffeeVisit(.takeaway) }
+                            Button("Sit down · 50 min") { chooseCoffeeVisit(.sitDown) }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                .font(.footnote)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
             }
 
             if !showsEstimatedTimes {

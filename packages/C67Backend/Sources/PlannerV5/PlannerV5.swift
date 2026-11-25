@@ -6,14 +6,16 @@ public struct PlannerV5: Sendable {
 
     let route: RouteProvider
     let checkInBufferMinutes: Int?
+    let canRecover: @Sendable () async -> Bool
 
     public init(route: @escaping RouteProvider) {
         self.init(route: route, checkInBufferMinutes: nil)
     }
 
-    init(route: @escaping RouteProvider, checkInBufferMinutes: Int?) {
+    init(route: @escaping RouteProvider, checkInBufferMinutes: Int?, canRecover: @escaping @Sendable () async -> Bool = { true }) {
         self.route = route
         self.checkInBufferMinutes = checkInBufferMinutes
+        self.canRecover = canRecover
     }
 
     public func plan(_ input: PlannerV5Input) async throws -> PlannerV5Result {
@@ -36,7 +38,7 @@ public struct PlannerV5: Sendable {
               [trip.startsAt, trip.finishBy].allSatisfy({ abs($0.timeIntervalSince1970) < 1e12 }),
               (0 ... 1440).contains(trip.enginePreferences?.maximumWaitMinutes ?? 0),
               checkInBufferMinutes == nil ||
-                  (0 ... 1440).contains(input.checkInBufferMinutes ?? checkInBufferMinutes ?? 0) else {
+              (0 ... 1440).contains(input.checkInBufferMinutes ?? checkInBufferMinutes ?? 0) else {
             throw PlannerV5Error.invalidInput
         }
         let day = try Day(input)
@@ -101,7 +103,8 @@ public struct PlannerV5: Sendable {
                      alternative: base.alternative, issues: base.issues,
                      enrichment: requests, sensitivity: sensitivity,
                      limit: work.limit ?? (base.missingETA ? .unavailableETA : (base.partial ? .shortlist : (sensitivityLimited ? .sensitivity : nil))),
-                     routeQuotes: work.quotes, evaluatedCandidates: work.candidates, completeCandidates: base.completeCandidates, reason: reason)
+                     routeQuotes: work.quotes, evaluatedCandidates: work.candidates, completeCandidates: base.completeCandidates,
+                     reason: reason, endpointDeadline: base.endpointDeadline)
     }
 
     private func append(_ request: PlannerV5EnrichmentRequest, to requests: inout [PlannerV5EnrichmentRequest]) {

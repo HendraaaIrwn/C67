@@ -199,9 +199,9 @@ struct PlannerExtremeTests {
         // The only complete itinerary leaves at 09:01, between the 30-minute departure seeds.
         let saturated = Fixture(name: "quote-budget", stops: (1 ... 6).map { Stop(number: $0) },
                                 finish: 930, flexible: true, locked: true, eta: { _, to, minute in
-            if to == 0 { return minute == 607 ? 1 : nil }
-            return 1
-        })
+                                    if to == 0 { return minute == 607 ? 1 : nil }
+                                    return 1
+                                })
         let recoveryReference = recoverable.oracle()
         let budgetReference = saturated.oracle()
         #expect(recoveryReference.count == 1)
@@ -257,7 +257,7 @@ struct PlannerExtremeTests {
                 let outcomes = Set(rows.map(\.outcome)).sorted()
                 let quotes = Set(rows.map(\.quotes)).sorted()
                 print("EXTREME BENCHMARK \(fixture.name) delay=\(fixture.delay) \(engine.rawValue) feasible=\(success)/30 "
-                      + "median_ms=\(median) p95_ms=\(elapsed[28]) quotes=\(quotes) outcomes=\(outcomes)")
+                    + "median_ms=\(median) p95_ms=\(elapsed[28]) quotes=\(quotes) outcomes=\(outcomes)")
                 Self.report(rows[0], engine: engine, fixture: fixture, reference: reference)
             }
         }
@@ -271,11 +271,11 @@ struct PlannerExtremeTests {
         ]
         var fixture = Fixture(name: weather ? "six-dense-forecast" : "six-no-forecast", stops: stops,
                               finish: 675, wait: 16, flexible: true, first: 1, extraTravel: 6, eta: { from, to, minute in
-            if from == 4 && to == 5 && (620 ..< 625).contains(minute) { return 8 }
-            if to == from + 1 || to == 0 { return 5 }
-            let rush = (minute / 5 + from + to).isMultiple(of: 3)
-            return 7 + (from * 3 + to) % 4 + (rush ? 12 : 0)
-        })
+                                  if from == 4 && to == 5 && (620 ..< 625).contains(minute) { return 8 }
+                                  if to == from + 1 || to == 0 { return 5 }
+                                  let rush = (minute / 5 + from + to).isMultiple(of: 3)
+                                  return 7 + (from * 3 + to) % 4 + (rush ? 12 : 0)
+                              })
         if weather {
             for stop in [stops[2], stops[5]] {
                 let kinds: [PlannerV51WeatherKind] = [.apparentTemperature, .directIrradiance, .uvIndex]
@@ -335,9 +335,9 @@ struct PlannerExtremeTests {
             }
         }
         print("EXTREME QUALITY \(fixture.name) \(engine.rawValue) outcome=\(observation.outcome) "
-              + "oracle_feasible=\(reference.count) quotes=\(observation.quotes) drive=\(label(schedule?.driving)) "
-              + "drive_gap=\(label(driveGap)) shortfalls=\(label(deficits)) best_buffer_rank=\(label(bestBuffer)) "
-              + "buffer_gap=\(label(bufferGap)) weather=\(label(weather))")
+            + "oracle_feasible=\(reference.count) quotes=\(observation.quotes) drive=\(label(schedule?.driving)) "
+            + "drive_gap=\(label(driveGap)) shortfalls=\(label(deficits)) best_buffer_rank=\(label(bestBuffer)) "
+            + "buffer_gap=\(label(bufferGap)) weather=\(label(weather))")
     }
 
     private static func label<T>(_ value: T?) -> String {

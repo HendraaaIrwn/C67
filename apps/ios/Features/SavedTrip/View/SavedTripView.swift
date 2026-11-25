@@ -162,7 +162,7 @@ struct SavedTripView: View {
         Task {
             do {
                 let preparation = try await presenter.prepareStart(trip)
-                if let preparation, preparation.scheduleChanged {
+                if let preparation, preparation.requiresConfirmation {
                     preparedStart = preparation
                     showsStartConfirmation = true
                 } else {

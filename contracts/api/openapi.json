@@ -6421,6 +6421,19 @@
               "type": "string",
               "maxLength": 100
             }
+          },
+          "researchCoffee": {
+            "type": "boolean",
+            "description": "Ask the compact Luna flow to look up public information about seating or takeaway-only service for this branch."
+          },
+          "address": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "website": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
           }
         },
         "required": [
@@ -7039,6 +7052,23 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          },
+          "coffeeVisits": {
+            "type": "array",
+            "description": "Branch-scoped records for selected coffee stops with evidence research enabled. Unknown service has no source URL.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "placeID": {"type": "string", "format": "uuid"},
+                "style": {"type": "string", "enum": ["takeaway", "sit_down", "unknown"]},
+                "sourceURL": {"type": "string", "format": "uri", "pattern": "^https://"}
+              },
+              "required": ["placeID", "style"],
+              "additionalProperties": false,
+              "if": {"properties": {"style": {"const": "unknown"}}},
+              "then": {"not": {"required": ["sourceURL"]}},
+              "else": {"required": ["sourceURL"]}
             }
           },
           "orderingMethod": {

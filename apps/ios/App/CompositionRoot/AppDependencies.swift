@@ -40,105 +40,106 @@ struct AppDependencies {
         return auth
     }
 
-#if DEBUG
-    let repository: any RundownRepository
-    let planningRepository: any PlanningRepository
-    let planningInitialInput: PlanningInput?
-    let mode: String
-    let authentication: (any TravellerAuthentication)?
+    #if DEBUG
+        let repository: any RundownRepository
+        let planningRepository: any PlanningRepository
+        let planningInitialInput: PlanningInput?
+        let mode: String
+        let authentication: (any TravellerAuthentication)?
 
-    @MainActor static func make(removeAccountData: @escaping @Sendable (UUID) async throws -> Void) throws -> AppDependencies {
-        let pocketURL = (Bundle.main.object(forInfoDictionaryKey: "POCKET_SERVER_URL") as? String).flatMap(URL.init(string:))
-        let deletion = AccountDeletionConfiguration(baseURL: pocketURL, removeLocalData: removeAccountData)
-        if ProcessInfo.processInfo.arguments.contains("--pocket-auth-fixture") {
-            let url = URL(string: "https://fixture.invalid")!
-            if ProcessInfo.processInfo.arguments.contains("--pocket-deletion-fixture") ||
-                ProcessInfo.processInfo.arguments.contains("--pocket-review-fixture") {
-                let auth = try AccountDeletionFixture.makeAuthentication(baseURL: url, removeAccountData: removeAccountData)
+        @MainActor static func make(removeAccountData: @escaping @Sendable (UUID) async throws -> Void) throws -> AppDependencies {
+            let pocketURL = (Bundle.main.object(forInfoDictionaryKey: "POCKET_SERVER_URL") as? String).flatMap(URL.init(string:))
+            let deletion = AccountDeletionConfiguration(baseURL: pocketURL, removeLocalData: removeAccountData)
+            if ProcessInfo.processInfo.arguments.contains("--pocket-auth-fixture") {
+                let url = URL(string: "https://fixture.invalid")!
+                if ProcessInfo.processInfo.arguments.contains("--pocket-deletion-fixture") ||
+                    ProcessInfo.processInfo.arguments.contains("--pocket-review-fixture") {
+                    let auth = try AccountDeletionFixture.makeAuthentication(baseURL: url, removeAccountData: removeAccountData)
+                    return .init(repository: try MockRundownRepository(), planningRepository: MockPlanningRepository(),
+                                 planningInitialInput: nil, mode: authenticatedMode, authentication: auth)
+                }
+                let auth = try SupabaseAuthentication(baseURL: url, clientKey: "synthetic-publishable-key",
+                                                      store: KeychainSessionStore(namespace: "io.pibeebee.c67.pocket-auth-fixture", baseURL: url))
                 return .init(repository: try MockRundownRepository(), planningRepository: MockPlanningRepository(),
                              planningInitialInput: nil, mode: authenticatedMode, authentication: auth)
             }
-            let auth = try SupabaseAuthentication(baseURL: url, clientKey: "synthetic-publishable-key",
-                                                  store: KeychainSessionStore(namespace: "io.pibeebee.c67.pocket-auth-fixture", baseURL: url))
-            return .init(repository: try MockRundownRepository(), planningRepository: MockPlanningRepository(),
-                         planningInitialInput: nil, mode: authenticatedMode, authentication: auth)
-        }
-        if ProcessInfo.processInfo.arguments.contains("--pocket-runtime-acceptance") {
-            let env = ProcessInfo.processInfo.environment
-            guard let url = env["C67_LIVE_URL"], let token = env["C67_LIVE_READ_TOKEN"],
-                  let encoded = env["C67_LIVE_INPUT"]?.data(using: .utf8), !token.isEmpty else {
-                throw RepositoryError.invalidConfiguration
+            if ProcessInfo.processInfo.arguments.contains("--pocket-runtime-acceptance") {
+                let env = ProcessInfo.processInfo.environment
+                guard let url = env["C67_LIVE_URL"], let token = env["C67_LIVE_READ_TOKEN"],
+                      let encoded = env["C67_LIVE_INPUT"]?.data(using: .utf8), !token.isEmpty else {
+                    throw RepositoryError.invalidConfiguration
+                }
+                let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+                let input = try decoder.decode(PlanningInput.self, from: encoded)
+                let connection = RuntimePocketConnection(url: url, token: token)
+                let repository = try PocketPlanningRepository(services: .live(connection: connection), connection: connection,
+                                                              storageURL: nil, currentOrderingOnly: true)
+                return .init(repository: try MockRundownRepository(), planningRepository: repository, planningInitialInput: input,
+                             mode: "Pocket • live runtime acceptance", authentication: nil)
             }
-            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-            let input = try decoder.decode(PlanningInput.self, from: encoded)
-            let connection = RuntimePocketConnection(url: url, token: token)
-            let repository = try PocketPlanningRepository(services: .live(connection: connection), connection: connection,
-                                                          storageURL: nil, currentOrderingOnly: true)
-            return .init(repository: try MockRundownRepository(), planningRepository: repository, planningInitialInput: input,
-                         mode: "Pocket • live runtime acceptance", authentication: nil)
-        }
-        if ProcessInfo.processInfo.arguments.contains("--pocket-integration-fixture") {
-            let input = PocketIntegrationFixture.input()
-            let lateJobTime = ProcessInfo.processInfo.arguments.contains("--pocket-late-day-fixture")
-                ? PocketIntegrationFixture.lateDay() : nil
-            let timesOut = ProcessInfo.processInfo.arguments.contains("--pocket-itinerary-timeout-fixture")
-            let hoursPort = ProcessInfo.processInfo.environment["C67_SYNTHETIC_HOURS_PORT"].flatMap(Int.init)
-            let fixtureID = ProcessInfo.processInfo.environment["C67_ORDERING_FIXTURE_ID"].flatMap(UUID.init(uuidString:))
-            let storage = fixtureID.map {
-                FileManager.default.temporaryDirectory.appendingPathComponent("ordering-fixture-\($0.uuidString).json")
+            if ProcessInfo.processInfo.arguments.contains("--pocket-integration-fixture") {
+                let input = PocketIntegrationFixture.input()
+                let lateJobTime = ProcessInfo.processInfo.arguments.contains("--pocket-late-day-fixture")
+                    ? PocketIntegrationFixture.lateDay() : nil
+                let timesOut = ProcessInfo.processInfo.arguments.contains("--pocket-itinerary-timeout-fixture")
+                let hoursPort = ProcessInfo.processInfo.environment["C67_SYNTHETIC_HOURS_PORT"].flatMap(Int.init)
+                let fixtureID = ProcessInfo.processInfo.environment["C67_ORDERING_FIXTURE_ID"].flatMap(UUID.init(uuidString:))
+                let storage = fixtureID.map {
+                    FileManager.default.temporaryDirectory.appendingPathComponent("ordering-fixture-\($0.uuidString).json")
+                }
+                let currentOrderingOnly = ProcessInfo.processInfo.arguments.contains("--pocket-current-ordering-fixture")
+                let repository = try PocketIntegrationFixture.repository(storageURL: storage, jobClock: { lateJobTime ?? .now },
+                                                                         firstOrderFailure: timesOut ? .timedOut : nil,
+                                                                         externalAIDisclosure: ProcessInfo.processInfo.arguments.contains("--pocket-privacy-fixture") ? "fixture-v1" : nil,
+                                                                         includesPinDetails: ProcessInfo.processInfo.arguments.contains("--itinerary-pin-details-fixture"),
+                                                                         includesCoffeeEvidence: ProcessInfo.processInfo.arguments.contains("--coffee-evidence-fixture"),
+                                                                         hoursPort: hoursPort,
+                                                                         currentOrderingOnly: currentOrderingOnly)
+                let initialInput = ProcessInfo.processInfo.arguments.contains("--without-starting-point") ? nil : input
+                return .init(repository: try MockRundownRepository(), planningRepository: repository,
+                             planningInitialInput: initialInput, mode: "Pocket • synthetic integration fixture", authentication: nil)
             }
-            let currentOrderingOnly = ProcessInfo.processInfo.arguments.contains("--pocket-current-ordering-fixture")
-            let repository = try PocketIntegrationFixture.repository(storageURL: storage, jobClock: { lateJobTime ?? .now },
-                                                                     firstOrderFailure: timesOut ? .timedOut : nil,
-                                                                     externalAIDisclosure: ProcessInfo.processInfo.arguments.contains("--pocket-privacy-fixture") ? "fixture-v1" : nil,
-                                                                     includesPinDetails: ProcessInfo.processInfo.arguments.contains("--itinerary-pin-details-fixture"),
-                                                                     hoursPort: hoursPort,
-                                                                     currentOrderingOnly: currentOrderingOnly)
-            let initialInput = ProcessInfo.processInfo.arguments.contains("--without-starting-point") ? nil : input
-            return .init(repository: try MockRundownRepository(), planningRepository: repository,
-                         planningInitialInput: initialInput, mode: "Pocket • synthetic integration fixture", authentication: nil)
-        }
-        let mode = Bundle.main.object(forInfoDictionaryKey: "C67_DATA_MODE") as? String ?? "mock"
-        switch mode {
-        case "pocket":
-            let raw = Bundle.main.object(forInfoDictionaryKey: "POCKET_SERVER_URL") as? String ?? ""
-            let endpoint = URL(string: raw)?.host == nil ? "" : raw
-            let connection = PocketConnectionStore(serverURL: endpoint)
-            let planning = try PocketPlanningRepository(services: .live(connection: connection), connection: connection,
-                                                        storageURL: PocketPlanningRepository.defaultStorageURL(),
-                                                        currentOrderingOnly: true)
-            return .init(repository: try MockRundownRepository(), planningRepository: planning, planningInitialInput: nil,
-                         mode: "Pocket • on-device", authentication: nil)
-        case "mock":
-            return .init(repository: try MockRundownRepository(), planningRepository: MockPlanningRepository(),
-                         planningInitialInput: try MockPlanningRepository.sampleInput(),
-                         mode: "Mock • memory only", authentication: nil)
-        case "live":
-            guard let value = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String,
-                  let url = URL(string: value),
-                  let key = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_CLIENT_KEY") as? String else {
-                throw RepositoryError.invalidConfiguration
+            let mode = Bundle.main.object(forInfoDictionaryKey: "C67_DATA_MODE") as? String ?? "mock"
+            switch mode {
+            case "pocket":
+                let raw = Bundle.main.object(forInfoDictionaryKey: "POCKET_SERVER_URL") as? String ?? ""
+                let endpoint = URL(string: raw)?.host == nil ? "" : raw
+                let connection = PocketConnectionStore(serverURL: endpoint)
+                let planning = try PocketPlanningRepository(services: .live(connection: connection), connection: connection,
+                                                            storageURL: PocketPlanningRepository.defaultStorageURL(),
+                                                            currentOrderingOnly: true)
+                return .init(repository: try MockRundownRepository(), planningRepository: planning, planningInitialInput: nil,
+                             mode: "Pocket • on-device", authentication: nil)
+            case "mock":
+                return .init(repository: try MockRundownRepository(), planningRepository: MockPlanningRepository(),
+                             planningInitialInput: try MockPlanningRepository.sampleInput(),
+                             mode: "Mock • memory only", authentication: nil)
+            case "live":
+                guard let value = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String,
+                      let url = URL(string: value),
+                      let key = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_CLIENT_KEY") as? String else {
+                    throw RepositoryError.invalidConfiguration
+                }
+                let authentication = try SupabaseAuthentication(baseURL: url, clientKey: key,
+                                                                store: KeychainSessionStore(namespace: Bundle.main.bundleIdentifier ?? "io.pibeebee.c67.starter", baseURL: url),
+                                                                flowStore: KeychainSessionStore(namespace: (Bundle.main.bundleIdentifier ?? "io.pibeebee.c67.starter") + ".email-flow", baseURL: url),
+                                                                accountDeletion: deletion)
+                let planning: any PlanningRepository
+                if let raw = Bundle.main.object(forInfoDictionaryKey: "PLANNING_API_URL") as? String,
+                   let endpoint = URL(string: raw), endpoint.host != nil {
+                    planning = try HTTPPlanningRepository(baseURL: endpoint, authentication: authentication,
+                                                          onUnauthorized: { try await authentication.invalidateSession(rejectedToken: $0) })
+                } else { planning = UnconfiguredPlanningRepository() }
+                return .init(repository: try SupabaseRundownRepository(baseURL: url, clientKey: key,
+                                                                       authentication: authentication,
+                                                                       accessToken: { try await authentication.accessToken() },
+                                                                       onUnauthorized: { try await authentication.invalidateSession(rejectedToken: $0) }),
+                             planningRepository: planning, planningInitialInput: nil,
+                             mode: "Live • Supabase", authentication: authentication)
+            default: throw RepositoryError.invalidConfiguration
             }
-            let authentication = try SupabaseAuthentication(baseURL: url, clientKey: key,
-                                                            store: KeychainSessionStore(namespace: Bundle.main.bundleIdentifier ?? "io.pibeebee.c67.starter", baseURL: url),
-                                                            flowStore: KeychainSessionStore(namespace: (Bundle.main.bundleIdentifier ?? "io.pibeebee.c67.starter") + ".email-flow", baseURL: url),
-                                                            accountDeletion: deletion)
-            let planning: any PlanningRepository
-            if let raw = Bundle.main.object(forInfoDictionaryKey: "PLANNING_API_URL") as? String,
-               let endpoint = URL(string: raw), endpoint.host != nil {
-                planning = try HTTPPlanningRepository(baseURL: endpoint, authentication: authentication,
-                                                      onUnauthorized: { try await authentication.invalidateSession(rejectedToken: $0) })
-            } else { planning = UnconfiguredPlanningRepository() }
-            return .init(repository: try SupabaseRundownRepository(baseURL: url, clientKey: key,
-                                                                   authentication: authentication,
-                                                                   accessToken: { try await authentication.accessToken() },
-                                                                   onUnauthorized: { try await authentication.invalidateSession(rejectedToken: $0) }),
-                         planningRepository: planning, planningInitialInput: nil,
-                         mode: "Live • Supabase", authentication: authentication)
-        default: throw RepositoryError.invalidConfiguration
         }
-    }
-#endif
+    #endif
 }
 
 #if DEBUG
@@ -218,7 +219,7 @@ struct AppDependencies {
 
         private func respond(_ status: Int, _ json: String) {
             guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
-                                                                       headerFields: ["Content-Type": "application/json"]) else {
+                                                                        headerFields: ["Content-Type": "application/json"]) else {
                 client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
                 return
             }

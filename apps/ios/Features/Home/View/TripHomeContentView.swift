@@ -70,13 +70,13 @@ struct TripHomeContentView: View {
                     .padding(16)
                 }
                 #if DEBUG
-                if isHistory {
-                    Text(mode.hasPrefix("Mock") ? "Synthetic demonstration · trips last until the app closes." : mode)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding()
-                }
+                    if isHistory {
+                        Text(mode.hasPrefix("Mock") ? "Synthetic demonstration · trips last until the app closes." : mode)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding()
+                    }
                 #endif
             }
             .refreshable { await presenter.load(waitForFirstItinerary: false) }

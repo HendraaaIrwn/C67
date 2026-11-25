@@ -13,14 +13,27 @@ struct ItineraryReviewView: View {
     @State private var lastReviewedProposal: PlanProposal?
     @State private var editRoute: ItineraryEditRoute?
     @State private var orderChanged = false
+    @State private var showsShorterVisit = false
 
     private var proposal: PlanProposal { presenter.job?.result?.proposal ?? lastReviewedProposal ?? initialProposal }
     private var displayedName: String { tripName ?? proposal.input.title }
+    private var usesLocalVisitDurations: Bool { proposal.effectiveOrderingMethod == .hybridV52 }
+    private var shorterVisit: PlanningDurationAlternative? {
+        guard usesLocalVisitDurations, presenter.reviewIssue != nil, presenter.job?.status == .failed else { return nil }
+        return presenter.job?.scheduleAssessment?.durationAlternatives.first
+    }
+    private var hasUnansweredCoffeeVisit: Bool {
+        !usesLocalVisitDurations && proposal.stops.contains { $0.visitDurationAdvice?.asksCoffeeIntent == true }
+    }
+    private var legacyCoffeePicker: ((UUID, CoffeeVisitStyle) -> Void)? {
+        if usesLocalVisitDurations { return nil }
+        return chooseCoffeeVisit
+    }
     private var canSave: Bool {
-        !presenter.needsFreshProposal && presenter.job?.result?.proposal != nil && presenter.draftInput == proposal.input
+        !hasUnansweredCoffeeVisit && !presenter.needsFreshProposal && presenter.job?.result?.proposal != nil && presenter.draftInput == proposal.input
     }
     private var canStartToday: Bool {
-        guard proposal.usesExperienceFlow else { return false }
+        guard proposal.usesExperienceFlow, !hasUnansweredCoffeeVisit else { return false }
         guard proposal.input.enginePreferences?.orderingMethod?.isSchedule == true else { return true }
         return PlanningDayWindow.isSameDay(proposal.departureAt ?? proposal.input.startsAt, .now, timeZone: proposal.input.timeZone)
     }
@@ -45,7 +58,8 @@ struct ItineraryReviewView: View {
     }
 
     var body: some View {
-        ItineraryListView(proposal: proposal, excludedPlaces: initialProposal.unscheduledPlaces ?? [],
+        ItineraryListView(chooseCoffeeVisit: legacyCoffeePicker,
+                          proposal: proposal, excludedPlaces: initialProposal.unscheduledPlaces ?? [],
                           editEndpoints: initialProposal.input.enginePreferences?.automaticFirstPlan == true ? { editRoute = $0 } : nil,
                           isSaving: presenter.isBusy, error: presenter.reviewIssue?.message,
                           retryTitle: retryTitle,
@@ -56,6 +70,7 @@ struct ItineraryReviewView: View {
                           startNow: canStartToday ? { saveName = displayedName; startsAfterSave = true; save() } : nil,
                           showsSaveAction: !initialProposal.usesExperienceFlow,
                           retry: retryAction,
+                          reviewShorterVisit: shorterVisit == nil ? nil : { showsShorterVisit = true },
                           refreshRoute: proposal.hasExperienceTravelFallback ? { refreshRoute() } : nil,
                           lookupHours: { await presenter.openingHours(placeID: $0) },
                           edit: edit,
@@ -88,6 +103,14 @@ struct ItineraryReviewView: View {
                 if name.isEmpty { Text("Enter a trip name.") }
                 else if name.count > 120 { Text("Shorten the trip name to 120 characters or fewer.") }
             }
+            .confirmationDialog("Use a shorter visit?", isPresented: $showsShorterVisit, titleVisibility: .visible, presenting: shorterVisit) { alternative in
+                Button("Use \(alternative.proposedSeconds / 60) min") { acceptShorterVisit(alternative) }
+                Button("Cancel", role: .cancel) {}
+            } message: { alternative in
+                let name = presenter.places.first { $0.id == alternative.placeID }?.name ?? String(localized: "Visit")
+                let activity = alternative.activity.map { String(localized: String.LocalizationValue($0.title)) } ?? String(localized: "Shorter visit")
+                Text("\(activity) at \(name) fits the checked route in \(alternative.proposedSeconds / 60) min.")
+            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if orderChanged || proposal.input.title != initialProposal.input.title {
                     Text("Updated itinerary. Review it before saving.")
@@ -116,8 +139,7 @@ struct ItineraryReviewView: View {
                     PlanningSearchSheet(near: presenter.origin, title: "Add a place", select: add)
                 case .startingPoint:
                     PlanningSearchSheet(near: presenter.origin, title: "Starting point") { place in
-                        presenter.origin = place.location
-                        presenter.originLabel = place.name
+                        presenter.selectOrigin(place)
                         regenerate()
                     }
                 case .endPoint:
@@ -134,7 +156,8 @@ struct ItineraryReviewView: View {
                 switch route {
                 case .visit(let place):
                     ItineraryVisitEditor(place: place, zone: proposal.input.timeZone,
-                                         startsAt: proposal.input.startsAt, orderingOnly: proposal.usesExperienceFlow, update: update)
+                                         startsAt: proposal.input.startsAt, orderingOnly: proposal.usesExperienceFlow,
+                                         usesLocalVisitDurations: usesLocalVisitDurations, update: update)
                 case .addPlace, .startingPoint, .endPoint:
                     EmptyView()
                 case .estimatedDeparture:
@@ -153,7 +176,7 @@ struct ItineraryReviewView: View {
 
     private func edit(_ id: UUID?) {
         if let id, var place = presenter.places.first(where: { $0.id == id }) {
-            if proposal.usesExperienceFlow, place.durationOverridden != true,
+            if proposal.usesExperienceFlow, place.durationOverridden != true || place.activitySession != nil,
                let stop = proposal.stopsWithExperienceEstimates.first(where: { $0.id == id }) { place.visitSeconds = stop.visitSeconds }
             editRoute = .visit(place)
         } else if id == nil {
@@ -163,9 +186,24 @@ struct ItineraryReviewView: View {
 
     private func update(_ original: PlanningPlace) {
         var place = original
-        if proposal.usesExperienceFlow { place.durationOverridden = true }
+        place.coffeeVisitIntent = nil
+        if proposal.usesExperienceFlow, !usesLocalVisitDurations { place.durationOverridden = true }
         guard let index = presenter.places.firstIndex(where: { $0.id == place.id }), !presenter.isBusy else { return }
         presenter.places[index] = place
+        regenerate()
+    }
+
+    private func acceptShorterVisit(_ alternative: PlanningDurationAlternative) {
+        guard !presenter.isBusy, shorterVisit == alternative else { return }
+        Task { await presenter.acceptDurationAlternative(alternative, reviewing: true) }
+    }
+
+    private func chooseCoffeeVisit(_ id: UUID, style: CoffeeVisitStyle) {
+        guard !presenter.isBusy, let index = presenter.places.firstIndex(where: { $0.id == id }) else { return }
+        let minutes = style == .takeaway ? CoffeeVisitStyle.pickupMinutes : CoffeeVisitStyle.sitDownMinutes
+        presenter.places[index].visitSeconds = minutes * 60
+        presenter.places[index].durationOverridden = true
+        presenter.places[index].coffeeVisitIntent = style
         regenerate()
     }
 

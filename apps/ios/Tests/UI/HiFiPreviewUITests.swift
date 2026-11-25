@@ -8,7 +8,16 @@ final class HiFiPreviewUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["Trip complete"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Done"].isHittable)
-        XCTAssertTrue(app.buttons["tripReturnToStartingPoint"].isHittable)
+        let returnToStart = app.buttons["tripReturnToStartingPoint"]
+        XCTAssertTrue(returnToStart.isHittable)
+        returnToStart.tap()
+        let panel = app.scrollViews["tripReturnPanel"]
+        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        let backToSummary = app.buttons["tripReturnClose"]
+        for _ in 0 ..< 3 where !backToSummary.isHittable { panel.swipeUp() }
+        XCTAssertTrue(backToSummary.isHittable)
+        backToSummary.tap()
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 5))
     }
 
     @MainActor func testNavigationAndArrivalControlsAreVisible() {

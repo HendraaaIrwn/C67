@@ -201,8 +201,7 @@ struct TripHomeRootView: View {
         areaLookup?.cancel()
         deviceAreaName = nil
         location.cancel()
-        presenter.origin = place.location
-        presenter.originLabel = place.name
+        presenter.selectOrigin(place)
         presenter.draftChanged()
     }
 

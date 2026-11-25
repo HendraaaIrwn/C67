@@ -35,7 +35,8 @@ struct PresentationIssue {
     var jobID: UUID? = nil
     var stopID: UUID? = nil
 
-    init(_ error: any Error, scope: Scope, operation: Operation, jobID: UUID? = nil, stopID: UUID? = nil) {
+    init(_ error: any Error, scope: Scope, operation: Operation, jobID: UUID? = nil, stopID: UUID? = nil,
+         messageOverride: String? = nil) {
         self.scope = scope
         self.operation = operation
         self.jobID = jobID
@@ -66,7 +67,7 @@ struct PresentationIssue {
                 ? "The connection was interrupted. Check the same request when you’re back online."
                 : "The request status couldn’t be confirmed. Check the same request again."
         } else {
-            message = failure.localizedDescription
+            message = messageOverride ?? failure.localizedDescription
         }
     }
 

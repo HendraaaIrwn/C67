@@ -9,11 +9,13 @@ struct ItineraryVisitEditor: View {
     let zone: String
     let startsAt: Date
     let orderingOnly: Bool
+    let usesLocalVisitDurations: Bool
     let update: (PlanningPlace) -> Void
     @Environment(\.dismiss) private var dismiss
     @ScaledMetric(relativeTo: .body) private var pickerHeight = 143.0
 
-    init(place: PlanningPlace, zone: String, startsAt: Date, orderingOnly: Bool = false, update: @escaping (PlanningPlace) -> Void) {
+    init(place: PlanningPlace, zone: String, startsAt: Date, orderingOnly: Bool = false,
+         usesLocalVisitDurations: Bool = false, update: @escaping (PlanningPlace) -> Void) {
         var draft = place
         if orderingOnly { draft.visitSeconds = min(max(place.visitSeconds, 60), 86_400) }
         _place = State(initialValue: draft)
@@ -22,6 +24,7 @@ struct ItineraryVisitEditor: View {
         self.zone = zone
         self.startsAt = startsAt
         self.orderingOnly = orderingOnly
+        self.usesLocalVisitDurations = usesLocalVisitDurations
         self.update = update
     }
 
@@ -73,31 +76,40 @@ struct ItineraryVisitEditor: View {
                 }
                 .padding(.horizontal, 2)
 
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Your visit length")
+                if usesLocalVisitDurations, place.activitySession != nil {
+                    Text("Scheduled session · \(place.visitSeconds / 60) min")
                         .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 16)
-                        .padding(.top, 13)
-                        .accessibilityHidden(true)
-                    Picker("Your visit length", selection: $place.visitSeconds) {
-                        ForEach(durations, id: \.self) { seconds in
-                            Text("\(seconds / 60) min").tag(seconds)
+                } else {
+                    if usesLocalVisitDurations { activityMenu }
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Your visit length")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 16)
+                            .padding(.top, 13)
+                            .accessibilityHidden(true)
+                        Picker("Your visit length", selection: visitLength) {
+                            ForEach(durations, id: \.self) { seconds in
+                                Text("\(seconds / 60) min").tag(seconds)
+                            }
                         }
+                        .pickerStyle(.wheel)
+                        .labelsHidden()
+                        .frame(height: pickerHeight)
+                        .clipped()
                     }
-                    .pickerStyle(.wheel)
-                    .labelsHidden()
-                    .frame(height: pickerHeight)
-                    .clipped()
+                    .background(AppColor.surface, in: .rect(cornerRadius: 17))
                 }
-                .background(AppColor.surface, in: .rect(cornerRadius: 17))
 
                 exposurePicker
                     .pickerStyle(.menu)
 
-                Text("Your chosen visit length will be preserved. This does not set an arrival time.")
-                    .font(.footnote)
-                    .foregroundStyle(.primary.opacity(0.72))
-                    .padding(.horizontal, 2)
+                if place.activitySession == nil || !usesLocalVisitDurations {
+                    Text("Travelants will recalculate the itinerary with this visit length.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 2)
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -112,6 +124,44 @@ struct ItineraryVisitEditor: View {
         .background(AppColor.canvas)
     }
 
+    private var visitLength: Binding<Int> {
+        Binding(get: { place.visitSeconds }, set: { seconds in
+            guard seconds != place.visitSeconds else { return }
+            place.visitSeconds = seconds
+            if usesLocalVisitDurations {
+                place.visitActivity = nil
+                place.durationOverridden = true
+                place.minimumAcceptedVisitSeconds = nil
+            }
+        })
+    }
+
+    private var activityMenu: some View {
+        let automatic = place.visitActivities.isEmpty ? String(localized: "General estimate") : String(localized: "Category estimate")
+        return Menu {
+            Button("\(automatic) · \(place.categoryVisitMinutes) min") { chooseActivity(nil) }
+            ForEach(place.visitActivities, id: \.self) { activity in
+                Button("\(String(localized: String.LocalizationValue(activity.title))) · \(activity.minutes) min") {
+                    chooseActivity(activity)
+                }
+            }
+        } label: {
+            let label = place.visitActivity.map { String(localized: String.LocalizationValue($0.title)) }
+            Label(label ?? (place.durationOverridden == true ? String(localized: "Custom duration") : automatic),
+                  systemImage: "chevron.up.chevron.down")
+                .frame(minHeight: 44)
+        }
+        .accessibilityIdentifier("itineraryVisitActivity")
+        .accessibilityLabel("Visit activity")
+    }
+
+    private func chooseActivity(_ activity: PlanningVisitActivity?) {
+        place.visitActivity = activity
+        place.visitSeconds = (activity?.minutes ?? place.categoryVisitMinutes) * 60
+        place.durationOverridden = false
+        place.minimumAcceptedVisitSeconds = nil
+    }
+
     private var exposurePicker: some View {
         VisitExposurePicker(exposure: Binding(get: { place.visitExposure ?? .unknown },
                                               set: { place.visitExposure = $0 == .unknown ? nil : $0 }))
@@ -120,7 +170,6 @@ struct ItineraryVisitEditor: View {
     private func cancel() { dismiss() }
     private func apply() { update(place); dismiss() }
 }
-
 
 struct VisitExposurePicker: View {
     @Binding var exposure: PlanningVisitExposure

@@ -28,9 +28,17 @@ public struct PlanningScheduleDecision: Codable, Equatable, Sendable {
     }
 
     public struct Reading: Codable, Equatable, Sendable, Identifiable {
+        public enum Kind: String, Sendable {
+            case apparentTemperature = "Feels like (°C)"
+            case directRadiation = "Direct sunlight (W/m²)"
+            case uvIndex = "UV index"
+            case precipitationChance = "Peak precipitation chance (%)"
+        }
+
         public let id: String
         public let value: Double?
         public let source: String?
+        public var kind: Kind? { Kind(rawValue: id) }
 
         package init(id: String, value: Double?, source: String?) {
             self.id = id

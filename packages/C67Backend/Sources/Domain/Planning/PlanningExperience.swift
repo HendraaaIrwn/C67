@@ -2,6 +2,17 @@ import Foundation
 
 /// An untimed experience recommendation. Provider context is distinct from suggested activities.
 public struct PlanningExperiencePlan: Equatable, Codable, Sendable {
+    public struct CoffeeVisit: Equatable, Codable, Sendable {
+        public let placeID: UUID
+        public let style: CoffeeVisitStyle
+        public let sourceURL: URL?
+
+        package init(placeID: UUID, style: CoffeeVisitStyle, sourceURL: URL? = nil) {
+            self.placeID = placeID
+            self.style = style
+            self.sourceURL = sourceURL
+        }
+    }
     public struct Activity: Equatable, Codable, Sendable {
         public var suggestion: String
         public var basis: String
@@ -97,8 +108,28 @@ public struct PlanningExperiencePlan: Equatable, Codable, Sendable {
     public var solarWindows: [LightWindow]
     public var contextWarnings: [String]
     public var orderingMethod: PlanningOrderingMethod? = nil
+    public var coffeeVisits: [CoffeeVisit]? = nil
 
     public func stop(_ id: UUID) -> Stop? { stops.first { $0.placeID == id } }
+}
+
+public enum CoffeeVisitStyle: String, Codable, Sendable {
+    case takeaway, sitDown = "sit_down", unknown
+
+    public static let pickupMinutes = 15
+    public static let sitDownMinutes = 50
+}
+
+public struct VisitDurationAdvice: Equatable, Codable, Sendable {
+    public let rationale: String
+    public let sourceURL: URL?
+    public let asksCoffeeIntent: Bool
+
+    package init(rationale: String, sourceURL: URL? = nil, asksCoffeeIntent: Bool = false) {
+        self.rationale = rationale
+        self.sourceURL = sourceURL
+        self.asksCoffeeIntent = asksCoffeeIntent
+    }
 }
 
 extension PlanningExperiencePlan.Duration {

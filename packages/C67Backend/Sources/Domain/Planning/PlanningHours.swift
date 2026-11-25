@@ -123,4 +123,9 @@ public struct EstimatedVisitWindow: Sendable {
     public var clockLabel: String {
         String(format: "%02d:00–%02d:00", opensHour, closesHour % 24)
     }
+
+    public static func minutesOutside(_ window: DateInterval, start: Date, end: Date) -> Int {
+        let overlap = max(0, min(end, window.end).timeIntervalSince(max(start, window.start)))
+        return Int(ceil(max(0, end.timeIntervalSince(start) - overlap) / 60))
+    }
 }

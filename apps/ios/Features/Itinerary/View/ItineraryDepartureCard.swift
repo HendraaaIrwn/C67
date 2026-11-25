@@ -4,6 +4,7 @@ import C67Domain
 struct ItineraryDepartureCard: View {
     let proposal: PlanProposal
     let departureForecast: DepartureWeatherLoader
+    let includesPreparationWeather: Bool
     var weatherAdvice: String?
     var isDesignPreview = false
     var editDeparture: (() -> Void)?
@@ -25,13 +26,13 @@ struct ItineraryDepartureCard: View {
             .task(id: forecastIdentity) {
                 guard !isDesignPreview, let departure = proposal.estimatedExperienceDeparture else { departureForecast.clear(); return }
                 #if DEBUG
-                    if proposal.synthetic, ProcessInfo.processInfo.arguments.contains("--before-you-go-rain-fixture") {
-                        departureForecast.useRainFixture(origin: proposal.input.origin, departure: departure)
+                    if proposal.synthetic, ProcessInfo.processInfo.arguments.contains("--before-you-go-weather-fixture") {
+                        departureForecast.usePreparationWeatherFixture(origin: proposal.input.origin, departure: departure)
                         return
                     }
                 #endif
                 guard !proposal.synthetic else { departureForecast.clear(); return }
-                await departureForecast.load(origin: proposal.input.origin, departure: departure)
+                await departureForecast.load(origin: proposal.input.origin, departure: departure, includesPreparationWeather: includesPreparationWeather)
             }
     }
 
@@ -110,7 +111,7 @@ struct ItineraryDepartureCard: View {
     }
 
     private var forecastIdentity: String {
-        "\(proposal.input.origin.latitude),\(proposal.input.origin.longitude),\(proposal.estimatedExperienceDeparture?.timeIntervalSince1970 ?? 0),\(proposal.synthetic),\(isDesignPreview),\(weatherRetry)"
+        "\(proposal.input.origin.latitude),\(proposal.input.origin.longitude),\(proposal.estimatedExperienceDeparture?.timeIntervalSince1970 ?? 0),\(proposal.synthetic),\(isDesignPreview),\(includesPreparationWeather),\(weatherRetry)"
     }
 
     @ViewBuilder private var departureWeather: some View {
@@ -194,28 +195,46 @@ struct ItineraryDepartureCard: View {
 }
 
 struct ItineraryPreparationCard: View {
+    private typealias Kind = PlanningScheduleDecision.Reading.Kind
+
+    private struct Reading {
+        let value: Double
+        let stop: String?
+        let source: String?
+
+        var when: String {
+            if let stop { return String(localized: "during your visit to \(stop)") }
+            return String(localized: "around departure")
+        }
+    }
+
+    private struct WeatherTip: Identifiable {
+        let id: Kind
+        let title: LocalizedStringKey
+        let detail: LocalizedStringKey
+        let symbol: String
+        let source: String?
+    }
+
     let forecast: DepartureWeatherLoader.Forecast?
+    let outdoor: [PlanningScheduleDecision.Outdoor]
+    let stops: [ScheduledPlanningStop]
+    let evidence: [PlanningEvidence]
     let hoursConflicts: [String]
     let hasDefaultTravelTime: Bool
+    @Environment(\.locale) private var locale
 
     var body: some View {
+        let weather = weatherTips
         VStack(alignment: .leading, spacing: 14) {
             Text("Before you go")
                 .font(.title3.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("itineraryPreparationTitle")
             VStack(spacing: 12) {
-                if let forecast {
-                    if forecast.precipitation == .storm {
-                        tip("Check the storm forecast", detail: "Storms are forecast around departure. Check local weather alerts before leaving.", symbol: "cloud.bolt.rain")
-                        separator
-                    } else if forecast.precipitation == .rain {
-                        tip("Pack an umbrella", detail: "Rain is forecast around departure.", symbol: "umbrella")
-                        separator
-                    } else if forecast.temperature.converted(to: .celsius).value >= 32 {
-                        tip("Bring water", detail: "The departure forecast is hot. Plan for time outdoors.", symbol: "drop")
-                        separator
-                    }
+                ForEach(weather) { row in
+                    tip(row.title, detail: row.detail, symbol: row.symbol)
+                    separator
                 }
                 if hoursConflicts.count > 1 {
                     tip("Check opening hours", detail: "\(hoursConflicts.count) visits may fall outside regular hours. Confirm directly with the venues.", symbol: "clock")
@@ -229,12 +248,95 @@ struct ItineraryPreparationCard: View {
                     tip("Allow extra travel time", detail: "Some legs use a default estimate. Check your route before leaving.", symbol: "map")
                 }
             }
+            ForEach(Array(Set(weather.compactMap(\.source))).sorted(), id: \.self) { source in
+                attribution(for: source)
+            }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColor.surface, in: .rect(cornerRadius: 16))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("itineraryPreparation")
+    }
+
+    private var weatherTips: [WeatherTip] {
+        var tips: [WeatherTip] = []
+        if forecast?.precipitation == .storm {
+            tips.append(.init(id: .precipitationChance, title: "Check the storm forecast",
+                              detail: "Storms are forecast around departure. Check local weather alerts before leaving.",
+                              symbol: "cloud.bolt.rain", source: forecast?.source))
+        } else if let rain = strongest(.precipitationChance), rain.value >= 40 {
+            let percent = (rain.value / 100).formatted(.percent.precision(.fractionLength(0)).locale(locale))
+            tips.append(.init(id: .precipitationChance, title: "Pack rain gear",
+                              detail: "Up to a \(percent) chance of precipitation \(rain.when). Bring a rain jacket or umbrella.",
+                              symbol: "umbrella", source: rain.source))
+        } else if forecast?.precipitation == .rain {
+            tips.append(.init(id: .precipitationChance, title: "Pack an umbrella", detail: "Rain is forecast around departure.",
+                              symbol: "umbrella", source: forecast?.source))
+        }
+        if let heat = strongest(.apparentTemperature), heat.value >= 32 {
+            let temperature = Measurement(value: heat.value, unit: UnitTemperature.celsius)
+                .formatted(.measurement(width: .abbreviated, usage: .weather, numberFormatStyle: .number.precision(.fractionLength(0))).locale(locale))
+            tips.append(.init(id: .apparentTemperature, title: "Bring water",
+                              detail: "Feels like \(temperature) \(heat.when). Plan water and cooling breaks.", symbol: "drop", source: heat.source))
+        }
+        if let uv = strongest(.uvIndex), uv.value >= 3 {
+            let index = uv.value.formatted(.number.precision(.fractionLength(0 ... 1)).locale(locale))
+            let protection: LocalizedStringKey = uv.value >= 8
+                ? "Limit time in direct sun and use sunscreen, a hat and sunglasses."
+                : "Bring sunscreen, a hat and sunglasses."
+            tips.append(.init(id: .uvIndex, title: "Pack sun protection", detail: "UV index \(index) \(uv.when). \(Text(protection))",
+                              symbol: "sunglasses", source: uv.source))
+        }
+        if let sun = strongest(.directRadiation), sun.value >= 500 {
+            let amount = sun.value.formatted(.number.precision(.fractionLength(0)).locale(locale))
+            tips.append(.init(id: .directRadiation, title: "Plan shade breaks",
+                              detail: "Direct sunlight averages \(amount) W/m² \(sun.when). Look for shaded places to rest.",
+                              symbol: "sun.max", source: sun.source))
+        }
+        return tips
+    }
+
+    private func strongest(_ kind: Kind) -> Reading? {
+        let departureValue: Double? = switch kind {
+        case .precipitationChance: forecast?.precipitationChance.map { $0 * 100 }
+        case .apparentTemperature: forecast?.feelsLikeCelsius
+        case .uvIndex: forecast?.uvIndex
+        case .directRadiation: forecast?.directRadiation
+        }
+        let source = kind == .directRadiation && forecast?.source == DepartureWeatherLoader.appleWeatherName
+            ? DepartureWeatherLoader.openMeteoName : forecast?.source
+        var result = departureValue.map { Reading(value: $0, stop: nil, source: source) }
+        let now = Date.now
+        for visit in outdoor where visit.interval.end > now {
+            guard let stop = stops.first(where: { $0.id == visit.id }),
+                  let reading = visit.readings.first(where: { $0.kind == kind }),
+                  let value = reading.value, value.isFinite, value > (result?.value ?? -.infinity) else { continue }
+            result = Reading(value: value, stop: stop.name, source: reading.source)
+        }
+        return result
+    }
+
+    @ViewBuilder private func attribution(for source: String) -> some View {
+        if forecast?.source != source {
+            if let data = evidence.first(where: { $0.kind == "weather" && !$0.synthetic && $0.label == source }), let url = data.url {
+                Link(destination: url) {
+                    if let mark = data.attributionLogoURL, mark.host == "weatherkit.apple.com" {
+                        AsyncImage(url: mark) { image in
+                            image.resizable().scaledToFit()
+                        } placeholder: { Text(source) }
+                            .frame(height: 14)
+                            .accessibilityLabel(source)
+                    } else {
+                        Text(source)
+                    }
+                }
+                .font(.footnote)
+            } else if source == DepartureWeatherLoader.openMeteoName {
+                Link(source, destination: DepartureWeatherLoader.openMeteoURL)
+                    .font(.footnote)
+            }
+        }
     }
 
     private var separator: some View {
@@ -263,12 +365,20 @@ struct ItineraryPreparationCard: View {
 /// Liquid Glass capsule on iOS 26 and later; a translucent white capsule before.
 private struct EditGlassBackground: ViewModifier {
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.glassEffect(.regular.tint(Color(red: 0.16, green: 0.38, blue: 0.86).opacity(0.55)).interactive(), in: .capsule)
-        } else {
-            content
-                .background(.white.opacity(0.24), in: .capsule)
-                .overlay { Capsule().strokeBorder(.white.opacity(0.35)) }
-        }
+        #if compiler(>=6.2)
+            if #available(iOS 26.0, *) {
+                content.glassEffect(.regular.tint(Color(red: 0.16, green: 0.38, blue: 0.86).opacity(0.55)).interactive(), in: .capsule)
+            } else {
+                fallback(content)
+            }
+        #else
+            fallback(content)
+        #endif
+    }
+
+    private func fallback(_ content: Content) -> some View {
+        content
+            .background(.white.opacity(0.24), in: .capsule)
+            .overlay { Capsule().strokeBorder(.white.opacity(0.35)) }
     }
 }

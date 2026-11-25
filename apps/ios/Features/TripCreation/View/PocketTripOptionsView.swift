@@ -255,7 +255,7 @@ struct PocketScheduleOptionsSheet: View {
                 VisitExposurePicker(exposure: Binding(get: {
                     presenter.selected.first { $0.id == id }?.place.visitExposure ?? .unknown
                 }, set: { presenter.setVisitExposure(id, exposure: $0) }))
-                .accessibilityIdentifier("visitExposure-\(id)")
+                    .accessibilityIdentifier("visitExposure-\(id)")
             }
             if presenter.usesV41, showAccessFirst { visitAccess(id, field: field) }
             Toggle("Set visit duration", isOn: Binding(get: {
@@ -306,7 +306,7 @@ struct PocketScheduleOptionsSheet: View {
             }
             options.wrappedValue.allowsAIProcessing = $0 != .disabled &&
                 (!presenter.planning.requiresExternalAIConsent || presenter.usesFoundationModels ||
-                 options.wrappedValue.externalAIConsentID != nil)
+                    options.wrappedValue.externalAIConsentID != nil)
         })) {
             Text("Estimate missing durations").fixedSize(horizontal: false, vertical: true).tag(PlanningSemanticAssistance.whenNeeded)
             Text("Activities and preferred times").fixedSize(horizontal: false, vertical: true).tag(PlanningSemanticAssistance.requested)

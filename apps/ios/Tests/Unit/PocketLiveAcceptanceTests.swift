@@ -453,7 +453,7 @@ private struct LiveAcceptanceConnection: PocketConnectionProviding {
         let proposal = job.result?.proposal
         let readings = proposal?.scheduleDecision?.outdoor.flatMap(\.readings) ?? []
         print("V51_LIVE elapsed=\(began.duration(to: clock.now)) status=\(job.status) code=\(job.errorCode ?? "-")"
-              + " ETA=\(job.scheduleAssessment?.routeCalls ?? 0) weather=\(readings.map { "\($0.id) \($0.source ?? "unavailable")" })")
+            + " ETA=\(job.scheduleAssessment?.routeCalls ?? 0) weather=\(readings.map { "\($0.id) \($0.source ?? "unavailable")" })")
         if proposal == nil {
             let forecast = try await services.scheduleForecast?(park.location, start, input.finishBy, true)
             print("V51_LIVE_WEATHER sources=\(forecast?.series.map { "\($0.kind) \($0.source) \($0.samples.count)" } ?? [])")

@@ -55,10 +55,13 @@ public struct PlanningScheduleIssue: Equatable, Codable, Sendable, Identifiable 
         switch code {
         case "all_day_closed": detail = "closed for the available window"
         case "visit_outside_hours_or_entry": detail = "visit does not fit the available hours or entry cutoff"
+        case "itinerary_outside_regular_hours": detail = "the visits cannot all fit within the available regular opening hours"
+        case "incompatible_required_schedule": detail = "the selected visit times or order cannot be combined within this day"
         case "duration_exceeds_all_windows": detail = "visit duration exceeds the available opening windows"
         case "target_outside_availability", "hard_target_missed", "required_target_missed", "session_outside_date": detail = "required visit time conflicts with this schedule"
         case "return_deadline_exceeded", "duration_exceeds_day": detail = "visits and travel exceed the finish time under the selected duration policy"
         case "duration_unknown": detail = "visit duration is needed"
+        case "shorter_visit_unverified": detail = "a shorter visit could not be verified with the available route checks"
         case "date_access_unverified":
             detail = source == EstimatedVisitWindow.source ? "hours are estimated and need checking before the visit" : "access on this date has not been confirmed"
         case "semantic_unavailable":
@@ -81,6 +84,7 @@ public struct PlanningDurationAlternative: Equatable, Codable, Sendable, Identif
     public var source: String
     public var startsAt: Date?
     public var finishBy: Date?
+    public var activity: PlanningVisitActivity? = nil
     public var id: UUID { placeID }
 
     public init(placeID: UUID, originalSeconds: Int, proposedSeconds: Int, source: String, startsAt: Date? = nil, finishBy: Date? = nil) {
@@ -90,6 +94,30 @@ public struct PlanningDurationAlternative: Equatable, Codable, Sendable, Identif
         self.source = source
         self.startsAt = startsAt
         self.finishBy = finishBy
+    }
+
+    public func apply(to place: inout PlanningPlace) {
+        guard place.id == placeID else { return }
+        place.visitActivity = activity
+        place.visitSeconds = proposedSeconds
+        place.durationOverridden = activity == nil
+        if activity != nil {
+            place.coffeeVisitIntent = nil
+            place.minimumAcceptedVisitSeconds = nil
+        } else if let minimum = place.minimumAcceptedVisitSeconds {
+            place.minimumAcceptedVisitSeconds = min(minimum, proposedSeconds)
+        }
+    }
+
+    public func applying(to input: PlanningInput) -> PlanningInput? {
+        guard let index = input.places.firstIndex(where: { $0.id == placeID }) else { return nil }
+        var approved = input
+        apply(to: &approved.places[index])
+        if let startsAt { approved.startsAt = startsAt }
+        if let finishBy { approved.finishBy = finishBy }
+        approved.enginePreferences?.scheduleSource = .manual
+        approved.enginePreferences?.usesAutomaticTripDate = false
+        return approved
     }
 }
 
@@ -134,13 +162,28 @@ public struct PlanningScheduleAssessment: Equatable, Codable, Sendable {
 }
 
 public struct PlanningScheduleFailure: Error, LocalizedError, Sendable {
-    public let code: String
+    public struct EndpointDeadlineConflict: Equatable, Sendable {
+        public let fromPlaceID: UUID
+        public let estimatedArrival: Date
+        public let deadline: Date
+
+        package init(fromPlaceID: UUID, estimatedArrival: Date, deadline: Date) {
+            self.fromPlaceID = fromPlaceID
+            self.estimatedArrival = estimatedArrival
+            self.deadline = deadline
+        }
+    }
+
+    public package(set) var code: String
     public var assessment: PlanningScheduleAssessment
+    package var verifiedDurationProposal: PlanProposal? = nil
+    public let endpointDeadlineConflict: EndpointDeadlineConflict?
     public var errorDescription: String? { PlanningError.failed(code).errorDescription }
 
-    public init(code: String, assessment: PlanningScheduleAssessment) {
+    public init(code: String, assessment: PlanningScheduleAssessment, endpointDeadlineConflict: EndpointDeadlineConflict? = nil) {
         self.code = code
         self.assessment = assessment
+        self.endpointDeadlineConflict = endpointDeadlineConflict
     }
 }
 

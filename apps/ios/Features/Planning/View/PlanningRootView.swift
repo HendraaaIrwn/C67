@@ -187,7 +187,7 @@ struct PlanningEditorView: View {
         .toolbar(isProcessingRecommendations ? .hidden : .automatic, for: .navigationBar)
         .fullScreenCover(item: $searchPurpose) { purpose in
             PlanningSearchSheet(near: presenter.origin, title: purpose == .origin ? "Starting point" : "Add a place") { place in
-                if purpose == .origin { location.cancel(); presenter.origin = place.location; presenter.originLabel = place.name }
+                if purpose == .origin { location.cancel(); presenter.selectOrigin(place) }
                 else if presenter.places.count < 6 { presenter.places.append(place) }
             }
         }
