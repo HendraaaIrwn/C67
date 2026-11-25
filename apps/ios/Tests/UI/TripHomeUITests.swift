@@ -274,6 +274,7 @@ final class TripHomeUITests: XCTestCase {
     }
 
     @MainActor func testSavingMockProposalOpensTripAndReturnsHome() {
+        continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments += ["--skip-splash"]
         app.launch()
