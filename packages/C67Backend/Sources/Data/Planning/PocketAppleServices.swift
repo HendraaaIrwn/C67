@@ -163,13 +163,13 @@
             let apple = PocketAppleServices()
             let client = PocketResearchClient(connection: connection)
             var services = Self(travel: { try await apple.travel(from: $0, to: $1, at: $2, mode: $3) },
-                         weather: { try await apple.weather(at: $0, start: $1, end: $2) },
-                         advise: { try await client.advise($0) }, resolve: { try await client.resolve($0, requestID: $1) },
-                         order: { try await client.order($0, requestID: $1) },
-                         experience: { try await client.experience($0, requestID: $1) },
-                         foundationExperience: { inputs, _ in try await V42FoundationExperience.generate(for: inputs) },
-                         hours: { await client.openingHours(placeID: $0) },
-                         attribution: { await apple.weatherEvidence() })
+                                weather: { try await apple.weather(at: $0, start: $1, end: $2) },
+                                advise: { try await client.advise($0) }, resolve: { try await client.resolve($0, requestID: $1) },
+                                order: { try await client.order($0, requestID: $1) },
+                                experience: { try await client.experience($0, requestID: $1) },
+                                foundationExperience: { inputs, _ in try await V42FoundationExperience.generate(for: inputs) },
+                                hours: { await client.openingHours(placeID: $0) },
+                                attribution: { await apple.weatherEvidence() })
             services.scheduleForecast = { try await apple.scheduleForecast($0, start: $1, end: $2, direct: $3) }
             services.batchHours = { try await client.openingHours(placeIDs: $0) }
             return services

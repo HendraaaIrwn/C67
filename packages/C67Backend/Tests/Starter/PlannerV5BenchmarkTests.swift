@@ -100,7 +100,7 @@ struct PlannerV5BenchmarkTests {
         }
         if scenario.lateCheckIn {
             places[0].activitySession = .init(startsAt: date(start + 15), endsAt: date(start + 15 + dwell),
-                                             arriveBy: date(start + 1))
+                                              arriveBy: date(start + 1))
         }
         var trip = PlanningInput(title: scenario.name, origin: .init(latitude: 0, longitude: 0), places: places,
                                  preferences: "", startsAt: date(start), finishBy: date(finish), timeZone: "UTC",

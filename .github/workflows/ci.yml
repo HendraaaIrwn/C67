@@ -21,8 +21,10 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: scripts/requirements.txt
-      - run: pip install -r scripts/requirements.txt
+          cache-dependency-path: |
+            scripts/requirements.txt
+            server/pocket/requirements.txt
+      - run: pip install -r scripts/requirements.txt -r server/pocket/requirements.txt
       - name: Validate contracts and fixtures
         run: |
           python3 scripts/check_contracts.py
