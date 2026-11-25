@@ -75,7 +75,7 @@ extension XCTestCase {
         let next = app.buttons["mainSpotNext"]
         XCTAssertTrue(next.waitForExistence(timeout: 5), app.debugDescription)
         next.tap()
-        XCTAssertTrue(app.navigationBars["Itinerary"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.scrollViews["itineraryList"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor func saveMockItinerary(_ app: XCUIApplication) {
