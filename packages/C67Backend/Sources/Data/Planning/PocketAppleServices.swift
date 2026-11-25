@@ -7,20 +7,43 @@
     import PocketEngine
 
     @MainActor private final class PocketAppleServices {
-        private var forecasts: [Coordinate: (Date, Forecast<HourWeather>)] = [:]
-        private var attribution: WeatherAttribution?
+        private struct Hour: Sendable {
+            let date: Date
+            let apparentTemperatureCelsius: Double
+            let uvIndex: Double
+            let precipitationChance: Double
+        }
+
+        private var forecasts: [Coordinate: (Date, [Hour])] = [:]
+        private var attribution: PlanningEvidence?
         private var weatherRetryAfter: Date?
         private var openForecasts: [Coordinate: (Date, PocketScheduleForecast)] = [:]
         private var openRetryAfter: Date?
 
-        private func hourly(_ point: Coordinate) async throws -> Forecast<HourWeather> {
+        private func hourly(_ point: Coordinate) async throws -> [Hour] {
             if let cached = forecasts[point], Date().timeIntervalSince(cached.0) < 300 { return cached.1 }
             if let retryAfter = weatherRetryAfter, retryAfter > .now { throw URLError(.resourceUnavailable) }
-            let forecast = try await WeatherService.shared.weather(
-                for: CLLocation(latitude: point.latitude, longitude: point.longitude), including: .hourly)
-            if attribution == nil { attribution = try await WeatherService.shared.attribution }
+            let forecast = try await Self.fetchHours(point)
+            if attribution == nil { attribution = try await Self.fetchAttribution() }
             forecasts[point] = (.now, forecast)
             return forecast
+        }
+
+        // Older WeatherKit SDKs do not declare the forecast and attribution types Sendable.
+        nonisolated private static func fetchHours(_ point: Coordinate) async throws -> [Hour] {
+            let forecast = try await WeatherService.shared.weather(
+                for: CLLocation(latitude: point.latitude, longitude: point.longitude), including: .hourly)
+            return forecast.map { hour in
+                .init(date: hour.date, apparentTemperatureCelsius: hour.apparentTemperature.converted(to: .celsius).value,
+                      uvIndex: Double(hour.uvIndex.value), precipitationChance: hour.precipitationChance)
+            }
+        }
+
+        nonisolated private static func fetchAttribution() async throws -> PlanningEvidence {
+            let source = try await WeatherService.shared.attribution
+            return .init(id: "apple-weather", label: source.serviceName, url: source.legalPageURL,
+                         checkedAt: .now, kind: "weather", summary: "Apple Weather and data sources", synthetic: false,
+                         attributionLogoURL: source.combinedMarkLightURL)
         }
 
         func scheduleForecast(_ point: PlanningPoint, start: Date, end: Date, direct: Bool) async throws -> PocketScheduleForecast {
@@ -34,7 +57,7 @@
                     let kinds: [PlannerV51WeatherKind] = [.apparentTemperature, .uvIndex]
                     forecast.series = kinds.map { kind in
                         .init(kind: kind, source: source, samples: hours.compactMap { hour in
-                            let value = kind == .uvIndex ? Double(hour.uvIndex.value) : hour.apparentTemperature.converted(to: .celsius).value
+                            let value = kind == .uvIndex ? hour.uvIndex : hour.apparentTemperatureCelsius
                             guard value.isFinite, kind != .uvIndex || value >= 0 else { return nil }
                             return .init(interval: .init(start: hour.date, duration: 3600), value: value)
                         })
@@ -143,10 +166,9 @@
         }
 
         func weatherEvidence() -> PlanningEvidence? {
-            guard let attribution else { return nil }
-            return .init(id: "apple-weather", label: attribution.serviceName, url: attribution.legalPageURL,
-                         checkedAt: .now, kind: "weather", summary: "Apple Weather and data sources", synthetic: false,
-                         attributionLogoURL: attribution.combinedMarkLightURL)
+            guard var attribution else { return nil }
+            attribution.checkedAt = .now
+            return attribution
         }
 
         private static func item(_ point: Coordinate) -> MKMapItem {
