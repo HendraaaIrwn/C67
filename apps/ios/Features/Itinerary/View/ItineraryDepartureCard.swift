@@ -365,12 +365,20 @@ struct ItineraryPreparationCard: View {
 /// Liquid Glass capsule on iOS 26 and later; a translucent white capsule before.
 private struct EditGlassBackground: ViewModifier {
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.glassEffect(.regular.tint(Color(red: 0.16, green: 0.38, blue: 0.86).opacity(0.55)).interactive(), in: .capsule)
-        } else {
-            content
-                .background(.white.opacity(0.24), in: .capsule)
-                .overlay { Capsule().strokeBorder(.white.opacity(0.35)) }
-        }
+        #if compiler(>=6.2)
+            if #available(iOS 26.0, *) {
+                content.glassEffect(.regular.tint(Color(red: 0.16, green: 0.38, blue: 0.86).opacity(0.55)).interactive(), in: .capsule)
+            } else {
+                fallback(content)
+            }
+        #else
+            fallback(content)
+        #endif
+    }
+
+    private func fallback(_ content: Content) -> some View {
+        content
+            .background(.white.opacity(0.24), in: .capsule)
+            .overlay { Capsule().strokeBorder(.white.opacity(0.35)) }
     }
 }

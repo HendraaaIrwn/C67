@@ -93,6 +93,19 @@ class OrderingTests(unittest.TestCase):
         self.assertEqual(verify_coffee_visits(places, documents, claims),
                          [dict(placeID="a", style="unknown"), dict(placeID="b", style="unknown")])
 
+    def test_coffee_evidence_rejects_other_branches_and_negated_service(self):
+        places = [dict(id="a", name="Cafe Merit", address="Jalan Sudirman 10")]
+        for text, quote in [
+            ("Cafe Merit: Jalan Sudirman 10. The Jalan Thamrin location has dine-in seating.", "dine-in seating"),
+            ("Cafe Merit: Jalan Sudirman 10, but the Thamrin branch has dine-in seating.", "dine-in seating"),
+            ("Cafe Merit: Jalan Sudirman 10: Dine-in seating is not available.", "Dine-in seating"),
+        ]:
+            with self.subTest(text=text):
+                documents = {"a": [dict(id="C1", url="https://example.test/branches", text=text)]}
+                claims = [dict(placeID="a", style="sit_down", sourceID="C1",
+                               branchQuote=text[:text.index(quote) + len(quote)], serviceQuote=quote)]
+                self.assertEqual(verify_coffee_visits(places, documents, claims), [dict(placeID="a", style="unknown")])
+
     def test_running_order_exposes_actual_activity_only_to_its_owner(self):
         checking_weather, release_weather = threading.Event(), threading.Event()
         running_luna, release_luna = threading.Event(), threading.Event()

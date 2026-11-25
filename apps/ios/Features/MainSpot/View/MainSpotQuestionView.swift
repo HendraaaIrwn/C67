@@ -55,7 +55,10 @@ struct MainSpotQuestionView: View {
                         .font(AppFont.footnote)
                         .foregroundStyle(AppColor.secondaryText)
                 }
-                if showsNext { QuestionPrimaryButton("Next", action: next) }
+                if showsNext {
+                    QuestionPrimaryButton("Next", action: next)
+                        .accessibilityIdentifier("mainSpotNext")
+                }
             }
         }
     }

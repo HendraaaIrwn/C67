@@ -35,6 +35,7 @@ struct V41ItineraryPlanner: Sendable {
         var comparedDates = false
         var dates: [PlanningDateAssessment] = []
         var lastFailure: PlanningScheduleFailure?
+        var etaFailure: PlanningScheduleFailure?
         var best: PlanProposal?
         var modelCalls = 0
         var retained = snapshots
@@ -153,6 +154,7 @@ struct V41ItineraryPlanner: Sendable {
                                                         failure: &failure)
                 }
                 lastFailure = failure
+                if failure.code == "V52_ETA_UNAVAILABLE" { etaFailure = failure }
             } catch let failure as PlanningError where best != nil && Self.canReturnPartialComparison(failure) {
                 dates.append(.init(date: input.startsAt, stopReason: "provider_unverified", completeCandidates: 0))
             }
@@ -164,7 +166,7 @@ struct V41ItineraryPlanner: Sendable {
         Self.logger.info("planning_counts request_id=\(requestID.uuidString.lowercased(), privacy: .public) method=\(method.rawValue, privacy: .public) model_attempts=\(modelCalls) route_calls=\(routeCalls) mapkit_elapsed=\(String(describing: mapTime), privacy: .public)")
         if var best {
             best.scheduleAssessment?.dates = dates
-            if dates.contains(where: { $0.stopReason == "provider_unverified" }) {
+            if etaFailure != nil || dates.contains(where: { $0.stopReason == "provider_unverified" }) {
                 best.warnings.append("Some dates could not be checked. This itinerary was validated for the date shown.")
             }
             best.scheduleAssessment?.modelCalls = modelCalls
@@ -180,7 +182,7 @@ struct V41ItineraryPlanner: Sendable {
             }
             return .init(proposal: best, candidates: [], warnings: best.warnings, synthetic: synthetic)
         }
-        var failure = lastFailure ?? .init(code: "V41_NO_SCHEDULE", assessment: .init())
+        var failure = etaFailure ?? lastFailure ?? .init(code: "V41_NO_SCHEDULE", assessment: .init())
         failure.assessment.dates = dates
         failure.assessment.modelCalls = modelCalls
         failure.assessment.routeCalls = await routes.calls

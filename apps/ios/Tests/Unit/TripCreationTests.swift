@@ -1088,7 +1088,10 @@ extension TripCreationTests {
         let model = try make(specific: false, repository: repo)
         model.advance(.interests)
         await model.loadRecommendationsIfNeeded()
-        for item in model.batch.places.prefix(10) { model.toggle(item) }
+        let restored = Array(model.batch.places.prefix(4))
+        for item in restored { model.toggle(item) }
+        #expect(model.selected.count == 6)
+        model.selected.append(try #require(restored.first { item in !model.selected.contains(item) }))
         let ids = model.selected.map(\.id)
         model.finishChoosingPlaces()
         await model.finishMainSpot()
@@ -1277,7 +1280,7 @@ extension TripCreationTests {
         #expect(model.route == .review)
     }
 
-    @Test func directProcessingBuildsV51ScheduleWithoutAvailabilityForm() async throws {
+    @Test func directProcessingBuildsV52ScheduleWithoutAvailabilityFormOrAI() async throws {
         let repository = try PocketIntegrationFixture.repository()
         let model = try make(repository: repository)
         let fixtureInput = PocketIntegrationFixture.input()
@@ -1291,14 +1294,14 @@ extension TripCreationTests {
         #expect(model.route == .review)
         #expect(model.planning.job?.purpose == .firstItinerary)
         let proposal = try #require(model.planning.job?.result?.proposal)
-        #expect(proposal.experiencePlan != nil)
+        #expect(proposal.experiencePlan == nil)
         #expect(proposal.stops.map(\.id) == model.selected.map { $0.place.id })
         #expect(proposal.input.enginePreferences?.orderingMethod == .hybridV52)
         #expect(proposal.scheduleDecision != nil)
         #expect(proposal.stops.allSatisfy { $0.arrivalAt != nil && $0.departureAt != nil })
         #expect(model.availabilityPlaces.isEmpty)
         #expect(model.error == nil)
-        #expect(model.planning.enginePreferences?.allowsAIProcessing == true)
+        #expect(model.planning.enginePreferences?.allowsAIProcessing == false)
     }
 
     @Test func previouslySelectedForeignPlaceCanReachThePlanner() async throws {
@@ -1320,7 +1323,7 @@ extension TripCreationTests {
         model.advance(.interests)
         await model.loadRecommendationsIfNeeded()
         let extras = Array(model.batch.places.prefix(4))
-        for item in extras { model.toggle(item) }
+        model.selected.append(contentsOf: extras)
         #expect(model.selected.count == 7)
         model.finishChoosingPlaces()
         await model.finishMainSpot()

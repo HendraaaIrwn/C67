@@ -217,9 +217,9 @@ func v52KeepsTheDateWhenHoursAreEstimatedOrAllowTheVisit(source: PlanningSchedul
     if source == .manual { #expect(proposal.departureAt == lateDeparture) }
 }
 
-private func v52RegularHours(open: Int, close: Int) throws -> PlanningHoursLookup {
+private func v52RegularHours(open: Int, close: Int, weekdays: Set<Int> = Set(1 ... 7)) throws -> PlanningHoursLookup {
     let intervals = [["startSeconds": open * 3600, "endSeconds": close * 3600]]
-    let weekly = (1 ... 7).map { ["weekday": $0, "intervals": intervals] as [String: Any] }
+    let weekly = (1 ... 7).map { ["weekday": $0, "intervals": weekdays.contains($0) ? intervals : []] as [String: Any] }
     let data = try JSONSerialization.data(withJSONObject: ["placeId": "I52", "timezone": "Asia/Jakarta", "weekly": weekly])
     return .init(status: "available", hours: try JSONDecoder().decode(PlanningRegularHours.self, from: data))
 }
@@ -722,6 +722,29 @@ func v52DistinguishesMissingETAFromTheQuoteLimit(hasETA: Bool) async throws {
         #expect(failure.assessment.stopReason == (hasETA ? "quote_budget_exhausted" : "unavailableETA"))
         #expect(failure.assessment.conflicts.isEmpty)
         #expect(await probe.dates.count == 4)
+    }
+}
+
+@Test func v52KeepsAnUnverifiedDateWhenTheFinalDateIsClosed() async throws {
+    var input = try v41Input(count: 1)
+    input.enginePreferences?.orderingMethod = .hybridV52
+    input.enginePreferences?.scheduleSource = .timingAnswer
+    input.enginePreferences?.tripTiming = .inAFewDays
+    input.places[0].sourceID = "apple:I52"
+    let hours = try v52RegularHours(open: 9, close: 18, weekdays: [4])
+    let services = PocketPlanningServices(travel: { _, _, _, _ in throw URLError(.timedOut) },
+                                          weather: { _, _, _ in throw PlanningError.unavailable },
+                                          advise: { _ in throw PlanningError.unavailable })
+    let planner = V41ItineraryPlanner(services: services, hours: { _ in hours }, synthetic: true)
+    let job = PlanningJob(id: UUID(), status: .running, purpose: .firstItinerary, input: input, createdAt: input.startsAt)
+    do {
+        _ = try await planner.plan(job)
+        Issue.record("The available date still needs a verified ETA")
+    } catch let failure as PlanningScheduleFailure {
+        #expect(failure.code == "V52_ETA_UNAVAILABLE")
+        #expect(failure.assessment.dates.count == 2)
+        #expect(failure.assessment.dates.first?.stopReason == "unavailableETA")
+        #expect(failure.assessment.dates.last?.stopReason != "unavailableETA")
     }
 }
 

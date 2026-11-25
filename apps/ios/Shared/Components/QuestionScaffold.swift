@@ -80,13 +80,17 @@ private struct BottomActionBar<Bar: View>: ViewModifier {
     let background: Color?
 
     @ViewBuilder func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content
-                .safeAreaBar(edge: .bottom, spacing: 0) { positionedBar }
-                .scrollEdgeEffectStyle(.soft, for: .bottom)
-        } else {
+        #if compiler(>=6.2)
+            if #available(iOS 26.0, *) {
+                content
+                    .safeAreaBar(edge: .bottom, spacing: 0) { positionedBar }
+                    .scrollEdgeEffectStyle(.soft, for: .bottom)
+            } else {
+                content.safeAreaInset(edge: .bottom, spacing: 0) { positionedBar }
+            }
+        #else
             content.safeAreaInset(edge: .bottom, spacing: 0) { positionedBar }
-        }
+        #endif
     }
 
     @ViewBuilder private var positionedBar: some View {
