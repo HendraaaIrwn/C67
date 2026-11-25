@@ -122,6 +122,7 @@ private struct TripPlanningWaitLayout: View {
             let fullHeight = proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
             let scale = min(1, fullHeight / Self.artboardHeight)
             let sceneWidth = proxy.size.width * 386.75 / 402
+            let title: Text = Text("Hang on tight!").font(.system(size: 34, weight: .bold))
             VStack(alignment: .leading, spacing: 0) {
                 // The scene bleeds past the margins without widening the centred text column.
                 Color.clear
@@ -132,8 +133,7 @@ private struct TripPlanningWaitLayout: View {
                             .offset(x: -3 - 20)
                     }
                     .padding(.top, 91 * scale - proxy.safeAreaInsets.top)
-                Text("Hang on tight!")
-                    .font(.system(size: 34, weight: .bold))
+                title
                     .frame(maxWidth: .infinity)
                     .foregroundStyle(AppColor.primaryText)
                     .accessibilityAddTraits(.isHeader)
