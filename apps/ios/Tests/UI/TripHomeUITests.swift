@@ -213,7 +213,20 @@ final class TripHomeUITests: XCTestCase {
         XCTAssertLessThan(returnToStart.frame.maxY, done.frame.minY)
         capture(app, name: "Trip complete summary")
         returnToStart.tap()
-        XCTAssertTrue(app.alerts["Design preview"].waitForExistence(timeout: 5))
+        let instruction = app.staticTexts.matching(identifier: "tripReturnBanner")
+            .matching(NSPredicate(format: "label == %@", "Turn right onto Jalan Cikini Raya")).firstMatch
+        XCTAssertTrue(instruction.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["tripReturnMap"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["Show route"].isHittable)
+        let destination = app.staticTexts["tripReturnDestination"]
+        XCTAssertTrue(destination.isHittable)
+        XCTAssertTrue(app.staticTexts["Planned distance"].exists)
+        XCTAssertTrue(app.staticTexts["Travel estimate"].exists)
+        XCTAssertLessThan(instruction.frame.maxY, destination.frame.minY)
+        capture(app, name: "Full-screen return route")
+        app.buttons["tripReturnClose"].tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        XCTAssertTrue(done.isHittable)
     }
     @MainActor func testEmptyHomeNavigationAndPlanningEntry() {
         let app = XCUIApplication()

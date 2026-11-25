@@ -9,6 +9,8 @@ extension PlannerV5 {
     }
 
     struct Work: Sendable {
+        static let quoteLimit = 72
+        static let candidateLimit = 500
         var routes: [Key: PlannerV5Route] = [:]
         var missing: Set<Key> = []
         var quotes = 0
@@ -120,7 +122,7 @@ extension PlannerV5 {
 
     enum Evaluation {
         case complete(PlannerV5Schedule)
-        case conflict(PlannerV5Issue)
+        case conflict(PlannerV5Issue, endpoint: PlannerV5EndpointDeadline? = nil)
         case missing(PlannerV5Issue)
         case limited
     }
@@ -132,6 +134,7 @@ extension PlannerV5 {
         var missingETA = false
         var alternative: PlannerV5Schedule?
         var issues: [PlannerV5Issue] = []
+        var endpointDeadline: PlannerV5EndpointDeadline?
         var status: PlannerV5Status = .incomplete
         var partial = false
         var uncertainExposure: [UUID] = []
@@ -163,6 +166,9 @@ extension PlannerV5 {
         if durations.reduce(0, +) > day.end - day.start {
             return .init(issues: [.deadline], status: .conflicts)
         }
+        if let issue = calendarConflict(day, durations: durations) {
+            return .init(issues: [issue], status: .conflicts)
+        }
         let latestDeparture = day.end - durations.reduce(0, +)
         let flexible = day.input.trip.enginePreferences?.flexibleDeparture == true
         let departures = flexible ? Array(stride(from: day.start, through: latestDeparture, by: 30)) : [day.start]
@@ -177,7 +183,7 @@ extension PlannerV5 {
                     let anchors = windows + boundaries(stop) + v51Boundaries[index]
                     for boundary in anchors {
                         for departure in [boundary - elapsed, boundary - elapsed - durations[index] + 1]
-                        where departure >= day.start && departure <= latestDeparture {
+                            where departure >= day.start && departure <= latestDeparture {
                             domain.append(.init(order: order, departure: departure))
                         }
                     }
@@ -196,7 +202,7 @@ extension PlannerV5 {
         while !unseen.isEmpty {
             try Task.checkCancellation()
             guard work.limit == nil else { break }
-            if work.candidates >= 500 {
+            if work.candidates >= Work.candidateLimit {
                 work.limit = .candidates
                 break
             }
@@ -214,14 +220,15 @@ extension PlannerV5 {
             if checked >= 3, let best = schedules.min(by: faster) {
                 let estimate = priority(candidate, day: day, durations: durations, work: work, proxies: proxies, usedOrders: [candidate.order], anchors: anchors)
                 if checked >= 12 || (checkInBufferMinutes == nil && best.preferredTimeDeviation == 0 &&
-                    estimate[2] > best.drivingMinutes + day.input.extraTravelMinutes && estimate[3] == 0) {
+                    best.estimatedHoursDeviation == 0 &&
+                    estimate[3] > best.drivingMinutes + day.input.extraTravelMinutes && estimate[4] == 0) {
                     break
                 }
             } else if checked >= 24 {
                 break
             }
             unseen.remove(candidate)
-            if flexible, checkInBufferMinutes != nil { evaluated.insert(candidate) }
+            evaluated.insert(candidate)
             usedOrders.insert(candidate.order)
             checked += 1
             work.candidates += 1
@@ -242,19 +249,32 @@ extension PlannerV5 {
                         }
                     }
                 }
-            case let .conflict(issue): if !result.issues.contains(issue) { result.issues.append(issue) }
+            case let .conflict(issue, endpoint):
+                if !result.issues.contains(issue) { result.issues.append(issue) }
+                if let endpoint { result.endpointDeadline = endpoint }
             case let .missing(issue):
                 result.missingETA = true
                 if !result.issues.contains(issue) { result.issues.append(issue) }
             case .limited: break
             }
         }
-        result.partial = !unseen.isEmpty || result.missingETA || work.limit != nil
+        let usesRecovery = day.input.trip.enginePreferences?.orderingMethod == .hybridV52
+        let sampledHours = usesRecovery && flexible &&
+            evaluated.count < day.orders.count * (latestDeparture - day.start + 1)
+        result.partial = !unseen.isEmpty || result.missingETA || work.limit != nil || (schedules.isEmpty && sampledHours)
+        if usesRecovery, schedules.isEmpty, result.partial,
+           let recovered = try await recover(day, durations: durations, latestDeparture: latestDeparture,
+                                             evaluated: evaluated, work: &work, result: &result) {
+            schedules.append(recovered)
+        }
         result.completeCandidates = schedules.count
         let ranked = schedules.sorted(by: faster)
         if let baseline = ranked.first {
             result.fastest = baseline
-            let comparable = ranked.filter { $0.preferredTimeDeviation == baseline.preferredTimeDeviation }
+            let comparable = ranked.filter {
+                $0.preferredTimeDeviation == baseline.preferredTimeDeviation &&
+                    $0.estimatedHoursDeviation == baseline.estimatedHoursDeviation
+            }
             let selected: PlannerV5Schedule
             if checkInBufferMinutes != nil {
                 let choice = selectV51(comparable, extraTravelMinutes: day.input.extraTravelMinutes)
@@ -291,6 +311,40 @@ extension PlannerV5 {
         return result
     }
 
+    private func calendarConflict(_ day: Day, durations: [Int]) -> PlannerV5Issue? {
+        func conflicts(ignoringRegularHours: Bool) -> Set<PlannerV5Issue> {
+            var issues: Set<PlannerV5Issue> = []
+            orderLoop: for order in day.orders {
+                var clock = day.start
+                for index in order {
+                    // Zero travel and unrestricted waiting are optimistic bounds for each order.
+                    switch visitTiming(day.stops[index], arrival: clock, length: durations[index],
+                                       deadline: day.end, ignoringRegularHours: ignoringRegularHours) {
+                    case let .visit(_, end):
+                        clock = Self.minute(end, rounding: .up)
+                        if clock > day.end {
+                            issues.insert(.deadline)
+                            continue orderLoop
+                        }
+                    case let .conflict(issue):
+                        issues.insert(issue)
+                        continue orderLoop
+                    }
+                }
+                return []
+            }
+            return issues
+        }
+
+        var blockers = conflicts(ignoringRegularHours: false)
+        guard !blockers.isEmpty else { return nil }
+        if day.stops.contains(where: { $0.access?.isRegularHours == true }) {
+            blockers = conflicts(ignoringRegularHours: true)
+            if blockers.isEmpty { return .regularHours }
+        }
+        return blockers.count == 1 ? blockers.first : .incompatibleSchedule
+    }
+
     private func priority(_ candidate: Candidate, day: Day, durations: [Int], work: Work,
                           proxies: [[Int]: [Key]], usedOrders: Set<[Int]>, anchors: [[Int]]) -> [Int] {
         var from = day.origin
@@ -301,6 +355,8 @@ extension PlannerV5 {
         var widestShortfall = 0
         var totalShortfall = 0
         var estimatedConflict = false
+        var estimatedHoursDeviation = 0
+        let rankByEstimatedHours = day.dayPart == nil && !day.stops.contains { $0.place.visitTiming == .preferred }
         for to in candidate.order + (day.endpoint.map { [$0] } ?? []) {
             let keys = proxies[[from, to]] ?? []
             let estimated = keys.filter { abs($0.minute - clock) <= 30 }
@@ -324,6 +380,9 @@ extension PlannerV5 {
                     totalShortfall += shortfall
                     clock = max(next, Self.minute(session.endsAt, rounding: .up))
                 } else {
+                    if rankByEstimatedHours, let window = stop.context.estimatedVisitWindow {
+                        estimatedHoursDeviation += EstimatedVisitWindow.minutesOutside(window, start: Self.date(clock), end: Self.date(next))
+                    }
                     clock = next
                 }
             }
@@ -332,9 +391,9 @@ extension PlannerV5 {
         let feasibility = clock > day.end || estimatedConflict ? 1 : 0
         let diversity = usedOrders.contains(candidate.order) ? 1 : 0
         if checkInBufferMinutes != nil {
-            return [feasibility, diversity, widestShortfall, totalShortfall, contextual ? -1 : 0,
+            return [feasibility, estimatedHoursDeviation, diversity, widestShortfall, totalShortfall, contextual ? -1 : 0,
                     travel, Int(distance * 100_000)]
         }
-        return [feasibility, diversity, travel, contextual ? -1 : 0, Int(distance * 100_000)]
+        return [feasibility, estimatedHoursDeviation, diversity, travel, contextual ? -1 : 0, Int(distance * 100_000)]
     }
 }

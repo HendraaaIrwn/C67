@@ -20,7 +20,15 @@ final class DepartureWeatherLoader {
         let markURL: URL?
         /// The provider mark for dark or coloured backgrounds, such as the departure card.
         var markOnDarkURL: URL?
+        var feelsLikeCelsius: Double?
+        var uvIndex: Double?
+        var directRadiation: Double?
+        var precipitationChance: Double?
     }
+
+    static let appleWeatherName = "Apple Weather"
+    static let openMeteoName = "Open-Meteo"
+    static let openMeteoURL = URL(string: "https://open-meteo.com/")!
 
     enum ForecastFailure: Error {
         case noForecastForDeparture, temporarilyUnavailable
@@ -39,7 +47,7 @@ final class DepartureWeatherLoader {
         self.origin == origin && self.departure == departure ? forecast : nil
     }
 
-    func load(origin: PlanningPoint, departure: Date) async {
+    func load(origin: PlanningPoint, departure: Date, includesPreparationWeather: Bool) async {
         generation += 1
         self.origin = origin
         self.departure = departure
@@ -50,6 +58,7 @@ final class DepartureWeatherLoader {
             failure = .noForecastForDeparture
             return
         }
+        async let openForecast = includesPreparationWeather ? openMeteo(origin: origin, departure: departure) : nil
         do {
             let start = Date(timeIntervalSince1970: floor(departure.timeIntervalSince1970 / 3600) * 3600)
             let location = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
@@ -63,14 +72,28 @@ final class DepartureWeatherLoader {
             case .rain, .heavyRain, .drizzle, .sunShowers: .rain
             default: nil
             }
-            forecast = Forecast(temperature: hour.temperature, condition: hour.condition.description, symbol: hour.symbolName,
-                                precipitation: precipitation, source: "Apple Weather", sourceURL: attribution.legalPageURL, markURL: attribution.combinedMarkLightURL,
-                                markOnDarkURL: attribution.combinedMarkDarkURL)
+            let feelsLike = hour.apparentTemperature.converted(to: .celsius).value
+            var value = Forecast(temperature: hour.temperature, condition: hour.condition.description, symbol: hour.symbolName,
+                                 precipitation: precipitation, source: Self.appleWeatherName, sourceURL: attribution.legalPageURL,
+                                 markURL: attribution.combinedMarkLightURL, markOnDarkURL: attribution.combinedMarkDarkURL,
+                                 feelsLikeCelsius: feelsLike.isFinite ? feelsLike : nil,
+                                 uvIndex: hour.uvIndex.value >= 0 ? Double(hour.uvIndex.value) : nil,
+                                 precipitationChance: (0 ... 1).contains(hour.precipitationChance) ? hour.precipitationChance : nil)
+            forecast = value
+            // WeatherKit supplies the departure conditions; Open-Meteo adds direct radiation.
+            let supplemental = try? await openForecast
+            guard !Task.isCancelled, ticket == generation else { return }
+            value.directRadiation = supplemental?.directRadiation
+            forecast = value
         } catch is CancellationError { return }
         catch {
             guard !Task.isCancelled, ticket == generation else { return }
             do {
-                let value = try await openMeteo(origin: origin, departure: departure)
+                let value = if includesPreparationWeather {
+                    try await openForecast
+                } else {
+                    try await openMeteo(origin: origin, departure: departure)
+                }
                 guard !Task.isCancelled, ticket == generation else { return }
                 forecast = value
             } catch {
@@ -84,7 +107,7 @@ final class DepartureWeatherLoader {
         var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
         components.queryItems = [URLQueryItem(name: "latitude", value: String(origin.latitude)),
                                  URLQueryItem(name: "longitude", value: String(origin.longitude)),
-                                 URLQueryItem(name: "hourly", value: "temperature_2m,weather_code"),
+                                 URLQueryItem(name: "hourly", value: "temperature_2m,weather_code,apparent_temperature,uv_index,direct_radiation,precipitation_probability"),
                                  URLQueryItem(name: "forecast_days", value: "16"),
                                  URLQueryItem(name: "temperature_unit", value: "celsius"),
                                  URLQueryItem(name: "timezone", value: "GMT"),
@@ -101,11 +124,19 @@ final class DepartureWeatherLoader {
             struct Units: Decodable {
                 let time: String
                 let temperature_2m: String
+                let apparent_temperature: String?
+                let uv_index: String?
+                let direct_radiation: String?
+                let precipitation_probability: String?
             }
             struct Hourly: Decodable {
                 let time: [Double]
                 let temperature_2m: [Double?]
                 let weather_code: [Int?]
+                let apparent_temperature: [Double?]?
+                let uv_index: [Double?]?
+                let direct_radiation: [Double?]?
+                let precipitation_probability: [Double?]?
             }
             let hourly: Hourly
             let hourly_units: Units
@@ -127,17 +158,33 @@ final class DepartureWeatherLoader {
         case 95 ... 99: ("Thunderstorms", "cloud.bolt.rain", .storm)
         default: ("Forecast", "cloud.sun", nil)
         }
+        // For these fields the provider labels the preceding hour with its ending timestamp.
+        let hourEnd = hourly.time[index] + 3600
+        let endingIndex = hourly.time.indices.contains(index + 1) && hourly.time[index + 1] == hourEnd ? index + 1 : nil
+        func reading(_ values: [Double?]?, at index: Int?) -> Double? {
+            guard let values, let index, values.indices.contains(index), let value = values[index], value.isFinite else { return nil }
+            return value
+        }
+        let units = forecast.hourly_units
+        let uv = reading(hourly.uv_index, at: endingIndex).flatMap { $0 >= 0 ? $0 : nil }
+        let radiation = reading(hourly.direct_radiation, at: endingIndex).flatMap { $0 >= 0 ? $0 : nil }
+        let chance = reading(hourly.precipitation_probability, at: endingIndex).flatMap { (0 ... 100).contains($0) ? $0 / 100 : nil }
         return Forecast(temperature: .init(value: temperature, unit: .celsius), condition: condition, symbol: symbol,
-                        precipitation: precipitation, source: "Open-Meteo", sourceURL: URL(string: "https://open-meteo.com/")!, markURL: nil)
+                        precipitation: precipitation, source: Self.openMeteoName, sourceURL: Self.openMeteoURL, markURL: nil,
+                        feelsLikeCelsius: units.apparent_temperature == "°C" ? reading(hourly.apparent_temperature, at: index) : nil,
+                        uvIndex: units.uv_index == "" ? uv : nil,
+                        directRadiation: units.direct_radiation == "W/m²" ? radiation : nil,
+                        precipitationChance: units.precipitation_probability == "%" ? chance : nil)
     }
 
     #if DEBUG
-        func useRainFixture(origin: PlanningPoint, departure: Date) {
+        func usePreparationWeatherFixture(origin: PlanningPoint, departure: Date) {
             clear()
             self.origin = origin
             self.departure = departure
-            forecast = Forecast(temperature: .init(value: 25, unit: .celsius), condition: "Sample rain", symbol: "cloud.rain",
-                                precipitation: .rain, source: "Synthetic fixture", sourceURL: URL(string: "https://fixture.invalid")!, markURL: nil)
+            forecast = Forecast(temperature: .init(value: 29, unit: .celsius), condition: "Sample weather", symbol: "cloud.sun",
+                                precipitation: nil, source: "Synthetic fixture", sourceURL: URL(string: "https://fixture.invalid")!, markURL: nil,
+                                feelsLikeCelsius: 35, uvIndex: 9, directRadiation: 620, precipitationChance: 0.6)
         }
     #endif
 }
@@ -362,6 +409,7 @@ final class TripNavigation: NSObject, @preconcurrency CLLocationManagerDelegate 
     private(set) var location: CLLocation?
     private(set) var route: MKRoute?
     private(set) var plannedRoute: MKRoute?
+    private(set) var plannedDirectionsUnavailable = false
     private(set) var locationError: String?
     private(set) var directionsError: String?
     var error: String? { locationError ?? directionsError }
@@ -396,6 +444,7 @@ final class TripNavigation: NSObject, @preconcurrency CLLocationManagerDelegate 
         location = nil
         route = nil
         plannedRoute = nil
+        plannedDirectionsUnavailable = false
         locationError = nil
         directionsError = nil
         permissionDenied = false
@@ -510,8 +559,10 @@ final class TripNavigation: NSObject, @preconcurrency CLLocationManagerDelegate 
                 let result = try await calculateRoute(from: origin, to: target.coordinate, mode: mode)
                 guard !Task.isCancelled, ticket == generation else { return }
                 plannedRoute = result
+                plannedDirectionsUnavailable = result == nil
             } catch {
-                // Existing planned metrics and map pins remain available if MapKit cannot calculate a route.
+                guard !Task.isCancelled, ticket == generation else { return }
+                plannedDirectionsUnavailable = true
             }
         }
     }

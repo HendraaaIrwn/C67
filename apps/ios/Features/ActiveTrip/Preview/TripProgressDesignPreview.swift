@@ -21,8 +21,7 @@
                                     previewDistance: "450 m",
                                     previewStep: ("80 m", "Turn right onto Jalan Cikini Raya"), previewPath: samplePath,
                                     openDirections: { notice = true }, openMaps: { notice = true }, arrive: { notice = true },
-                                    completeVisit: { notice = true }, returnToTrip: { notice = true },
-                                    returnToStartingPoint: { notice = true })
+                                    completeVisit: { notice = true }, returnToTrip: { notice = true })
                     .alert("Design preview", isPresented: $notice) { Button("OK", role: .cancel) {} } message: {
                         Text("Sample map and estimates. No live guidance or trip event is recorded.")
                     }

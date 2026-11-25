@@ -66,6 +66,8 @@ public struct PlanningPlace: Equatable, Codable, Sendable, Identifiable {
     public var availabilityVerified = false
     public var visitTiming: PlanningVisitTiming? = nil
     public var durationOverridden: Bool? = nil
+    public var visitActivity: PlanningVisitActivity? = nil
+    public var coffeeVisitIntent: CoffeeVisitStyle? = nil
     public var minimumAcceptedVisitSeconds: Int? = nil
     public var activitySession: PlanningActivitySession? = nil
     public var visitExposure: PlanningVisitExposure?
@@ -82,7 +84,10 @@ public struct PlanningPlace: Equatable, Codable, Sendable, Identifiable {
 
 public struct PlanningInput: Equatable, Codable, Sendable {
     public var title: String
-    public var origin: PlanningPoint
+    public var origin: PlanningPoint {
+        didSet { if origin != oldValue { originName = nil } }
+    }
+    public var originName: String? = nil
     public var places: [PlanningPlace]
     public var preferences: String
     public var startsAt: Date
@@ -137,6 +142,7 @@ public struct ScheduledPlanningStop: Equatable, Codable, Sendable, Identifiable 
     public var travelSeconds: Int
     public var roadDistanceMeters: Double? = nil
     public var warnings: [String]
+    public var visitDurationAdvice: VisitDurationAdvice? = nil
     public var visitStartsAt: Date? = nil
     public init(id: UUID, name: String, location: PlanningPoint, arrivalAt: Date?, departureAt: Date?, visitSeconds: Int, travelSeconds: Int, warnings: [String]) {
         self.id = id
@@ -202,6 +208,7 @@ public struct PlanningRequest: Equatable, Codable, Sendable {
     public var tripID: UUID?
     public var baseRevision: Int?
     public var replacementDeparture: Date? = nil
+    public var durationAlternativeJobID: UUID? = nil
     public var currentOrigin: PlanningPoint?
     public init(requestID: UUID, purpose: PlanningPurpose, input: PlanningInput, tripID: UUID? = nil, baseRevision: Int? = nil, currentOrigin: PlanningPoint? = nil) {
         self.requestID = requestID
@@ -278,12 +285,50 @@ public struct PersonalPlanningTrip: Equatable, Codable, Sendable, Identifiable {
 public struct PlanningStartPreparation: Sendable {
     public let id: UUID
     public let proposal: PlanProposal
-    public let scheduleChanged: Bool
+    public let requiresConfirmation: Bool
 
-    public init(id: UUID, proposal: PlanProposal, scheduleChanged: Bool) {
+    public init(id: UUID, proposal: PlanProposal, requiresConfirmation: Bool) {
         self.id = id
         self.proposal = proposal
-        self.scheduleChanged = scheduleChanged
+        self.requiresConfirmation = requiresConfirmation
+    }
+}
+
+extension PlanProposal {
+    package func requiresStartConfirmation(comparedTo saved: PlanProposal) -> Bool {
+        let tolerance = 5 * 60
+        func isClose(_ before: Date?, _ after: Date?) -> Bool {
+            guard let before, let after else { return before == after }
+            return abs(after.timeIntervalSince(before)) <= Double(tolerance)
+        }
+        func isClose(_ before: Int?, _ after: Int?) -> Bool {
+            guard let before, let after else { return before == after }
+            return abs(Double(after) - Double(before)) <= Double(tolerance)
+        }
+
+        let oldDeparture = saved.departureAt ?? saved.input.startsAt
+        let newDeparture = departureAt ?? input.startsAt
+        guard feasible, input.timeZone == saved.input.timeZone,
+              PlanningDayWindow.isSameDay(oldDeparture, newDeparture, timeZone: input.timeZone),
+              input.origin == saved.input.origin, input.mode == saved.input.mode,
+              input.planningEndpoint == saved.input.planningEndpoint,
+              stops.map(\.id) == saved.stops.map(\.id), isClose(oldDeparture, newDeparture),
+              isClose(saved.finishesAt, finishesAt), isClose(saved.returnTravelSeconds, returnTravelSeconds) else { return true }
+
+        for (old, new) in zip(saved.stops, stops) {
+            guard old.location == new.location, old.visitSeconds == new.visitSeconds,
+                  isClose(old.travelSeconds, new.travelSeconds), isClose(old.arrivalAt, new.arrivalAt),
+                  isClose(old.visitStartsAt ?? old.arrivalAt, new.visitStartsAt ?? new.arrivalAt),
+                  isClose(old.departureAt, new.departureAt) else { return true }
+        }
+
+        let previousCheckIns = saved.scheduleDecision?.checkIns ?? []
+        let checkIns = scheduleDecision?.checkIns ?? []
+        guard previousCheckIns.count == checkIns.count else { return true }
+        return checkIns.contains { current in
+            guard let previous = previousCheckIns.first(where: { $0.id == current.id }), previous.target == current.target else { return true }
+            return current.shortfall > previous.shortfall
+        }
     }
 }
 
@@ -372,6 +417,7 @@ public enum PlanningError: Error, Equatable, LocalizedError, Sendable {
         case .failed(let code):
             switch code {
             case "START_DATE_MISMATCH": "Choose a new trip date and review its schedule before starting."
+            case "START_VERIFICATION_TIMEOUT": "Checking travel times took too long. Try again to continue checking your trip."
             case "PLANNING_CANCELLED": "Planning was cancelled. Your draft is available."
             case "ORDER_REQUEST_CONFLICT": "The request does not match its original input. Try again with a new request."
             case "PLANNING_ALREADY_RUNNING": "Another itinerary is still being prepared. Check its status before starting another."
@@ -396,9 +442,10 @@ public enum PlanningError: Error, Equatable, LocalizedError, Sendable {
             case "V4_NO_SCHEDULE": "Hybrid v4 could not verify a complete schedule with the available route estimates and constraints. Try a wider time window or another method."
             case "V51_SCHEDULE_CONFLICT": "The itinerary cannot meet the selected schedule constraints. Review the details and try again."
             case "V41_NO_SCHEDULE": "Travelant could not verify a complete schedule with the available estimates. Review the details or try again."
+            case "V52_ETA_UNAVAILABLE": "Apple Maps couldn’t provide travel times for part of the route. Try checking the itinerary again."
             case "V41_ACCESS_CONFLICT": "A visit conflicts with the available opening hours or its session. Review visit availability."
             case "V41_DATE_CONFLICT": "The selected date conflicts with a dated visit. Review the trip date and visit confirmation."
-            case "V41_BUDGET_REACHED": "The route search reached its limit. Your selected places are kept. Try again to check more candidates."
+            case "V41_BUDGET_REACHED": "Travelants reached the route-checking limit before verifying a complete schedule. Your selected places are kept."
             case "ORDER_GENERATION_FAILED": "The Pocket server could not complete the recommendation. Your selected places are kept. Try again."
             case "PROVIDER_CONFIGURATION_REQUIRED": "Live AI or Apple data is not configured on the planning server."
             case "ROUTE_UNAVAILABLE": "A route estimate is unavailable. No travel time was invented."

@@ -2,7 +2,51 @@ import C67Domain
 import Foundation
 
 extension PlannerV5 {
-    func evaluate(_ candidate: Candidate, day: Day, durations: [Int], work: inout Work) async throws -> Evaluation {
+    enum VisitTiming {
+        case visit(start: Date, end: Date)
+        case conflict(PlannerV5Issue)
+    }
+
+    func visitTiming(_ stop: Stop, arrival: Int, length: Int, deadline: Int, ignoringRegularHours: Bool = false) -> VisitTiming {
+        let place = stop.place
+        let session = place.activitySession
+        if let session, Self.date(arrival) > min(session.arriveBy ?? session.startsAt, session.startsAt) {
+            return .conflict(.checkIn(place.id))
+        }
+        let hard = place.visitTiming == .required || place.visitTiming == .notBefore
+        let earliest = hard ? max(arrival, place.preferredAfter.map { Self.minute($0, rounding: .up) } ?? arrival) : arrival
+        let latestStart = place.visitTiming == .required ? place.preferredBefore ?? Self.date(deadline) : Self.date(deadline)
+        if earliest > Self.minute(latestStart) {
+            return .conflict(.visitTime(place.id))
+        }
+        if let session, session.startsAt < Self.date(earliest) || session.startsAt > latestStart {
+            return .conflict(.visitTime(place.id))
+        }
+
+        let start: Date
+        let end: Date
+        if let access = stop.access, !(ignoringRegularHours && access.isRegularHours) {
+            let possible = access.windows.compactMap { window -> Date? in
+                let openingMinute = Self.minute(window.interval.start, rounding: .up)
+                let proposed = session?.startsAt ?? Self.date(max(earliest, openingMinute))
+                let finish = session?.endsAt ?? proposed.addingTimeInterval(Double(length) * 60)
+                guard proposed >= window.interval.start, proposed < window.interval.end, finish <= window.interval.end,
+                      window.lastEntry.map({ proposed <= $0 }) ?? true else { return nil }
+                return proposed
+            }
+            guard let first = possible.min() else { return .conflict(.access(place.id)) }
+            start = first
+            end = session?.endsAt ?? start.addingTimeInterval(Double(length) * 60)
+        } else {
+            start = session?.startsAt ?? Self.date(earliest)
+            end = session?.endsAt ?? start.addingTimeInterval(Double(length) * 60)
+        }
+        if start > latestStart { return .conflict(.visitTime(place.id)) }
+        return .visit(start: start, end: end)
+    }
+
+    func evaluate(_ candidate: Candidate, day: Day, durations: [Int], work: inout Work,
+                  quoteLimit: Int = Work.quoteLimit) async throws -> Evaluation {
         var clock = candidate.departure
         var from = day.origin
         var visits: [PlannerV5Visit] = []
@@ -12,13 +56,14 @@ extension PlannerV5 {
         var outdoorVisits: [PlannerV51OutdoorVisit] = []
         var waiting = 0
         var preference = 0
+        var estimatedHoursDeviation = 0
         var driving = 0
 
         for to in candidate.order + (day.endpoint.map { [$0] } ?? []) {
             let fromID = from < day.stops.count ? day.stops[from].place.id : nil
             let toID = to < day.stops.count ? day.stops[to].place.id : nil
             let key = Key(from: from, to: to, minute: clock)
-            let quote = try await lookup(key, day: day, work: &work)
+            let quote = try await lookup(key, day: day, work: &work, quoteLimit: quoteLimit)
             if work.limit != nil { return .limited }
             guard let quote else { return .missing(.etaUnavailable(from: fromID, to: toID)) }
             let travel = (quote.seconds + 59) / 60
@@ -28,52 +73,32 @@ extension PlannerV5 {
             clock = arrival
             driving += travel
             from = to
-            guard arrival <= day.end else { return .conflict(.deadline) }
+            if arrival > day.end {
+                if to == day.endpoint, let fromID, day.input.trip.preservesPlaceOrder,
+                   day.input.trip.enginePreferences?.flexibleDeparture == false {
+                    return .conflict(.deadline, endpoint: .init(from: fromID, arrival: Self.date(arrival)))
+                }
+                return .conflict(.deadline)
+            }
             guard toID != nil else { continue }
 
             let stop = day.stops[to]
             let place = stop.place
-            let session = place.activitySession
             let arrivalDate = Self.date(arrival)
-            if let session {
-                let deadline = min(session.arriveBy ?? session.startsAt, session.startsAt)
-                if arrivalDate > deadline { return .conflict(.checkIn(place.id)) }
-                if let target = bufferTarget(day) {
-                    let buffer = deadline.timeIntervalSince(arrivalDate) / 60
-                    checkIns.append(.init(placeID: place.id, deadline: deadline, arrival: arrivalDate,
-                                          targetMinutes: target, bufferMinutes: buffer,
-                                          shortfallMinutes: max(0, Double(target) - buffer)))
-                }
-            }
-            let hard = place.visitTiming == .required || place.visitTiming == .notBefore
-            let earliest = hard ? max(arrival, place.preferredAfter.map { Self.minute($0, rounding: .up) } ?? arrival) : arrival
-            let latest = place.visitTiming == .required ? place.preferredBefore.map { Self.minute($0) } ?? day.end : day.end
-            if earliest > latest { return .conflict(.visitTime(place.id)) }
-            let latestStart = place.visitTiming == .required ? place.preferredBefore ?? Self.date(day.end) : Self.date(day.end)
-            if let session, session.startsAt < Self.date(earliest) || session.startsAt > latestStart {
-                return .conflict(.visitTime(place.id))
-            }
-
+            let length = durations[to]
             let start: Date
             let end: Date
-            let length = durations[to]
-            if let access = stop.access {
-                let possible = access.windows.compactMap { window -> Date? in
-                    let openingMinute = Self.minute(window.interval.start, rounding: .up)
-                    let proposed = session?.startsAt ?? Self.date(max(earliest, openingMinute))
-                    let finish = session?.endsAt ?? proposed.addingTimeInterval(Double(length) * 60)
-                    guard proposed >= window.interval.start, proposed < window.interval.end, finish <= window.interval.end,
-                          window.lastEntry.map({ proposed <= $0 }) ?? true else { return nil }
-                    return proposed
-                }
-                guard let first = possible.min() else { return .conflict(.access(place.id)) }
-                start = first
-                end = session?.endsAt ?? start.addingTimeInterval(Double(length) * 60)
-            } else {
-                start = session?.startsAt ?? Self.date(earliest)
-                end = session?.endsAt ?? start.addingTimeInterval(Double(length) * 60)
+            switch visitTiming(stop, arrival: arrival, length: length, deadline: day.end) {
+            case let .visit(visitStart, visitEnd): (start, end) = (visitStart, visitEnd)
+            case .conflict(let issue): return .conflict(issue)
             }
-            if start > latestStart { return .conflict(.visitTime(place.id)) }
+            if let session = place.activitySession, let target = bufferTarget(day) {
+                let deadline = min(session.arriveBy ?? session.startsAt, session.startsAt)
+                let buffer = deadline.timeIntervalSince(arrivalDate) / 60
+                checkIns.append(.init(placeID: place.id, deadline: deadline, arrival: arrivalDate,
+                                      targetMinutes: target, bufferMinutes: buffer,
+                                      shortfallMinutes: max(0, Double(target) - buffer)))
+            }
             let waitingHere = Int(ceil(start.timeIntervalSince(arrivalDate) / 60))
             waiting += waitingHere
             if waiting > day.wait { return .conflict(.waiting(place.id)) }
@@ -89,6 +114,9 @@ extension PlannerV5 {
             if let dayPart = day.dayPart {
                 preference += max(0, clock - startMinute - max(0, min(clock, dayPart.upperBound) - max(startMinute, dayPart.lowerBound)))
             }
+            if let window = stop.context.estimatedVisitWindow {
+                estimatedHoursDeviation += EstimatedVisitWindow.minutesOutside(window, start: start, end: end)
+            }
             var duration = stop.duration
             duration.target = length
             visits.append(.init(placeID: place.id, arrivesAt: arrivalDate, startsAt: start, endsAt: end,
@@ -102,19 +130,19 @@ extension PlannerV5 {
         }
         return .complete(.init(departsAt: Self.date(candidate.departure), finishesAt: Self.date(clock), visits: visits,
                                legs: legs, drivingMinutes: driving, waitingMinutes: waiting,
-                               preferredTimeDeviation: preference, metrics: metrics,
+                               preferredTimeDeviation: preference, estimatedHoursDeviation: estimatedHoursDeviation, metrics: metrics,
                                checkIns: checkIns, outdoorVisits: outdoorVisits))
     }
 
-    private func lookup(_ key: Key, day: Day, work: inout Work) async throws -> PlannerV5Route? {
+    private func lookup(_ key: Key, day: Day, work: inout Work, quoteLimit: Int) async throws -> PlannerV5Route? {
         try Task.checkCancellation()
         let from = day.points[key.from]
         let to = day.points[key.to]
         if from == to { return .init(seconds: 0, meters: 0) }
         if let cached = work.routes[key] { return cached }
         if work.missing.contains(key) { return nil }
-        guard work.quotes < 72 else {
-            work.limit = .routeQuotes
+        guard work.quotes < quoteLimit else {
+            work.limit = quoteLimit < Work.quoteLimit ? .recoveryQuotes : .routeQuotes
             return nil
         }
 
@@ -139,8 +167,8 @@ extension PlannerV5 {
     }
 
     func faster(_ left: PlannerV5Schedule, _ right: PlannerV5Schedule) -> Bool {
-        let lhs = (left.preferredTimeDeviation, left.drivingMinutes, left.waitingMinutes, left.departsAt)
-        let rhs = (right.preferredTimeDeviation, right.drivingMinutes, right.waitingMinutes, right.departsAt)
+        let lhs = (left.preferredTimeDeviation, left.estimatedHoursDeviation, left.drivingMinutes, left.waitingMinutes, left.departsAt)
+        let rhs = (right.preferredTimeDeviation, right.estimatedHoursDeviation, right.drivingMinutes, right.waitingMinutes, right.departsAt)
         if lhs != rhs { return lhs < rhs }
         return left.visits.map { $0.placeID.uuidString }.lexicographicallyPrecedes(right.visits.map { $0.placeID.uuidString })
     }
@@ -233,7 +261,8 @@ extension PlannerV5 {
             case let .goldenHour(window): [window.start, window.end]
             }
         }
-        return (visitTimes + access + light).map { Self.minute($0) }
+        let estimate = stop.context.estimatedVisitWindow.map { [$0.start, $0.end] } ?? []
+        return (visitTimes + access + light + estimate).map { Self.minute($0) }
     }
 
     func sensitivityMinutes(_ day: Day, index: Int, schedule: PlannerV5Schedule?) -> [Int] {
@@ -250,7 +279,7 @@ extension PlannerV5 {
                     for anchor in anchors + [day.end] {
                         let difference = anchor - Self.minute(reference)
                         for value in [stop.duration.target + difference, stop.duration.target + difference + 1]
-                        where range.contains(value) {
+                            where range.contains(value) {
                             values.insert(value)
                         }
                     }

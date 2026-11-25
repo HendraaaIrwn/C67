@@ -27,11 +27,9 @@ struct TripProgressContent: View {
     var arriveAtEndpoint: () -> Void = {}
     let completeVisit: () -> Void
     let returnToTrip: () -> Void
-    let returnToStartingPoint: () -> Void
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.locale) private var locale
     @State private var mapPosition: MapCameraPosition = .automatic
-    @State private var panelHeight: CGFloat = 280
+    @State private var showsReturnRoute = false
 
     private var stop: ScheduledPlanningStop? { trip.nextStop }
     private var arrived: Bool { stop != nil && trip.currentStopID == stop?.id }
@@ -54,10 +52,13 @@ struct TripProgressContent: View {
 
     var body: some View {
         if trip.status == .completed {
-            TripCompletedContent(trip: trip, details: details, returnToStartingPoint: returnToStartingPoint, done: returnToTrip)
+            TripCompletedContent(trip: trip, details: details, returnToStartingPoint: { showsReturnRoute = true }, done: returnToTrip)
+                .fullScreenCover(isPresented: $showsReturnRoute) {
+                    TripReturnRouteView(trip: trip, isDesignPreview: isDesignPreview)
+                }
         } else if trip.pendingEndpoint != nil {
             VStack(spacing: 16) {
-                Text(trip.plan.input.enginePreferences?.endPointName ?? "Return to starting point").font(.headline)
+                Text(trip.plan.input.enginePreferences?.endPointName ?? "Trip end point").font(.headline)
                 if let route { Text("Estimated travel: \(Int(ceil(route.expectedTravelTime / 60))) min") }
                 if let locationError { Text(locationError).font(.footnote) }
                 if locationPermissionDenied { Button("Open Settings", action: openSettings) }
@@ -85,8 +86,7 @@ struct TripProgressContent: View {
                     }
                 }
                 if let line = routeLine {
-                    MapPolyline(line).stroke(.white, style: .init(lineWidth: 9, lineCap: .round, lineJoin: .round))
-                    MapPolyline(line).stroke(AppColor.accent, style: .init(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                    TripRouteLine(polyline: line)
                 }
                 if isDesignPreview, !arrived, let origin = previewPath.first {
                     Annotation("Sample starting point", coordinate: .init(latitude: origin.latitude, longitude: origin.longitude)) {
@@ -119,14 +119,7 @@ struct TripProgressContent: View {
             .accessibilityLabel("Trip stops on the map")
             .overlay(alignment: .trailing) {
                 if displayedRoute != nil {
-                    Button(action: focusRoute) {
-                        Image(systemName: "location.viewfinder")
-                            .frame(width: 44, height: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel("Show route")
-                    .padding(.trailing, 16)
+                    TripRouteFocusButton(action: focusRoute)
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -134,21 +127,10 @@ struct TripProgressContent: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let stop {
-                    let maxHeight = min(geometry.size.height * (dynamicTypeSize.isAccessibilitySize ? 0.67 : 0.53), 560)
-                    ScrollView {
+                    TripRoutePanel(availableHeight: geometry.size.height) {
                         tripPanel(for: stop)
-                            .frame(maxWidth: .infinity)
-                            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { panelHeight = $0 }
                     }
-                    .scrollBounceBehavior(.basedOnSize)
-                    .frame(maxWidth: 640)
-                    .frame(height: min(panelHeight, maxHeight))
                     .accessibilityIdentifier("tripProgressPanel")
-                    .foregroundStyle(.primary)
-                    .background(AppColor.surface, in: .rect(cornerRadius: 24))
-                    .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 8)
                 }
             }
         }
@@ -169,39 +151,10 @@ struct TripProgressContent: View {
 
     private func tripBanner(for stop: ScheduledPlanningStop) -> some View {
         let instruction = arrived ? nil : nextInstruction
-        return HStack(alignment: .center, spacing: 16) {
-            Image(systemName: arrived ? "checkmark" : instruction == nil ? "map" : "arrow.up.forward")
-                .font(.title.weight(.semibold))
-                .padding(10)
-                .background(.white.opacity(0.15), in: .rect(cornerRadius: 13))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                if let instruction {
-                    Text(instruction.distance)
-                        .font(.largeTitle.bold().monospacedDigit())
-                    Text(instruction.instruction)
-                        .font(.title3.weight(.semibold))
-                        .accessibilityIdentifier("tripRouteInstruction")
-                    Text(route == nil && (plannedRoute != nil || isDesignPreview) ? "Route from starting point" : "Route preview")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.91))
-                } else {
-                    Text(arrived ? "You’ve arrived" : "On your way")
-                        .font(.headline)
-                    Text(stop.name)
-                        .font(.title3.bold())
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 19)
-        .padding(.vertical, 17)
-        .frame(maxWidth: 640, alignment: .leading)
-        .foregroundStyle(AppColor.onBrand)
-        .background(AppColor.brand.mix(with: .black, by: 0.14), in: .rect(cornerRadius: 25))
-        .shadow(color: .black.opacity(0.16), radius: 16, y: 9)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        return TripRouteBanner(symbol: arrived ? "checkmark" : instruction == nil ? "map" : "arrow.up.forward",
+                               heading: arrived ? "You’ve arrived" : "On your way",
+                               destination: stop.name, instruction: instruction,
+                               routeContext: route == nil && (plannedRoute != nil || isDesignPreview) ? "Route from starting point" : "Route preview")
     }
 
     private func tripPanel(for stop: ScheduledPlanningStop) -> some View {
@@ -248,43 +201,8 @@ struct TripProgressContent: View {
             ?? stop.roadDistanceMeters.map(Self.distance)
         let minutes = isDesignPreview ? 6 : displayedRoute.map { max(1, Int(ceil($0.expectedTravelTime / 60))) }
             ?? (stop.roadDistanceMeters != nil && stop.travelSeconds > 0 ? (stop.travelSeconds + 59) / 60 : nil)
-        let hasRoute = route != nil || isDesignPreview
-        let distanceLabel: LocalizedStringKey = hasRoute ? "Remaining" : distance == nil ? "Distance" : "Planned distance"
-        let timeLabel: LocalizedStringKey = hasRoute ? (walking ? "Walking" : "Driving") : "Travel estimate"
-        return ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 14) {
-                metric(distance ?? "—", label: distanceLabel)
-                Rectangle()
-                    .fill(AppColor.secondaryText.opacity(0.28))
-                    .frame(width: 1, height: 39)
-                    .accessibilityHidden(true)
-                metric(minutes.map { String(localized: "\($0) min") } ?? "—", label: timeLabel,
-                       symbol: walking ? "figure.walk" : "car")
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                metric(distance ?? "—", label: distanceLabel)
-                metric(minutes.map { String(localized: "\($0) min") } ?? "—", label: timeLabel,
-                       symbol: walking ? "figure.walk" : "car")
-            }
-        }
-        .accessibilityIdentifier("tripRouteMetrics")
-    }
-
-    private func metric(_ value: String, label: LocalizedStringKey, symbol: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 7) {
-                if let symbol {
-                    Image(systemName: symbol)
-                        .font(.title3)
-                        .accessibilityHidden(true)
-                }
-                Text(value)
-                    .font(.largeTitle.bold().monospacedDigit())
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            Text(label).font(.subheadline).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        return TripRouteMetrics(distance: distance, minutes: minutes, hasRoute: route != nil || isDesignPreview, walking: walking)
+            .accessibilityIdentifier("tripRouteMetrics")
     }
 
     private func stopIdentity(for stop: ScheduledPlanningStop) -> some View {
@@ -473,12 +391,10 @@ struct TripProgressContent: View {
 
     private func focusRoute() {
         guard let routeLine else { return }
-        let rect = routeLine.boundingMapRect
-        guard !rect.isNull, !rect.isEmpty else { return }
-        mapPosition = .rect(rect.insetBy(dx: -max(rect.size.width * 0.25, 500), dy: -max(rect.size.height * 0.25, 500)))
+        mapPosition = TripRouteLine.cameraPosition(for: routeLine)
     }
 
-    private static func distance(_ meters: CLLocationDistance) -> String {
+    static func distance(_ meters: CLLocationDistance) -> String {
         if meters < 1000 { return "\(Int((meters / 10).rounded() * 10)) m" }
         return Measurement(value: meters / 1000, unit: UnitLength.kilometers).formatted(.measurement(width: .abbreviated, numberFormatStyle: .number.precision(.fractionLength(1))))
     }
@@ -490,6 +406,149 @@ struct TripProgressContent: View {
         }
         .buttonStyle(TripPrimaryButtonStyle())
         .disabled(isBusy)
+    }
+}
+
+struct TripRouteBanner: View {
+    let symbol: String
+    let heading: LocalizedStringKey
+    let destination: String
+    let instruction: (distance: String, instruction: String)?
+    let routeContext: LocalizedStringKey
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            Image(systemName: symbol)
+                .font(.title.weight(.semibold))
+                .padding(10)
+                .background(.white.opacity(0.15), in: .rect(cornerRadius: 13))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                if let instruction {
+                    Text(instruction.distance)
+                        .font(.largeTitle.bold().monospacedDigit())
+                    Text(instruction.instruction)
+                        .font(.title3.weight(.semibold))
+                        .accessibilityIdentifier("tripRouteInstruction")
+                    Text(routeContext)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.91))
+                } else {
+                    Text(heading)
+                        .font(.headline)
+                    Text(destination)
+                        .font(.title3.bold())
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 19)
+        .padding(.vertical, 17)
+        .frame(maxWidth: 640, alignment: .leading)
+        .foregroundStyle(AppColor.onBrand)
+        .background(AppColor.brand.mix(with: .black, by: 0.14), in: .rect(cornerRadius: 25))
+        .shadow(color: .black.opacity(0.16), radius: 16, y: 9)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+}
+
+struct TripRoutePanel<Content: View>: View {
+    let availableHeight: CGFloat
+    @ViewBuilder let content: Content
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var panelHeight: CGFloat = 280
+
+    var body: some View {
+        let maxHeight = min(availableHeight * (dynamicTypeSize.isAccessibilitySize ? 0.67 : 0.53), 560)
+        ScrollView {
+            content
+                .frame(maxWidth: .infinity)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { panelHeight = $0 }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxWidth: 640)
+        .frame(height: min(panelHeight, maxHeight))
+        .foregroundStyle(.primary)
+        .background(AppColor.surface, in: .rect(cornerRadius: 24))
+        .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
+    }
+}
+
+struct TripRouteMetrics: View {
+    let distance: String?
+    let minutes: Int?
+    let hasRoute: Bool
+    let walking: Bool
+
+    var body: some View {
+        let distanceLabel: LocalizedStringKey = hasRoute ? "Remaining" : distance == nil ? "Distance" : "Planned distance"
+        let timeLabel: LocalizedStringKey = hasRoute ? (walking ? "Walking" : "Driving") : "Travel estimate"
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 14) {
+                metric(distance ?? "—", label: distanceLabel)
+                Rectangle()
+                    .fill(AppColor.secondaryText.opacity(0.28))
+                    .frame(width: 1, height: 39)
+                    .accessibilityHidden(true)
+                metric(minutes.map { String(localized: "\($0) min") } ?? "—", label: timeLabel,
+                       symbol: walking ? "figure.walk" : "car")
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                metric(distance ?? "—", label: distanceLabel)
+                metric(minutes.map { String(localized: "\($0) min") } ?? "—", label: timeLabel,
+                       symbol: walking ? "figure.walk" : "car")
+            }
+        }
+    }
+
+    private func metric(_ value: String, label: LocalizedStringKey, symbol: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 7) {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.title3)
+                        .accessibilityHidden(true)
+                }
+                Text(value)
+                    .font(.largeTitle.bold().monospacedDigit())
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            Text(label).font(.subheadline).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct TripRouteFocusButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "location.viewfinder")
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel("Show route")
+        .padding(.trailing, 16)
+    }
+}
+
+struct TripRouteLine: MapContent {
+    let polyline: MKPolyline
+
+    var body: some MapContent {
+        MapPolyline(polyline).stroke(.white, style: .init(lineWidth: 9, lineCap: .round, lineJoin: .round))
+        MapPolyline(polyline).stroke(AppColor.accent, style: .init(lineWidth: 5, lineCap: .round, lineJoin: .round))
+    }
+
+    static func cameraPosition(for polyline: MKPolyline) -> MapCameraPosition {
+        let rect = polyline.boundingMapRect
+        guard !rect.isNull else { return .automatic }
+        return .rect(rect.insetBy(dx: -max(rect.size.width * 0.25, 500), dy: -max(rect.size.height * 0.25, 500)))
     }
 }
 

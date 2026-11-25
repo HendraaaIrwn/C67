@@ -14,6 +14,8 @@ extension V41ItineraryPlanner {
         if let requestID { Self.logPhase("schedule_forecast", since: forecastStarted, requestID: requestID) }
         var engineInput = input
         var contexts: [UUID: PlannerV5VisitContext] = [:]
+        let localDurations = input.enginePreferences?.orderingMethod == .hybridV52
+        let coffeeVisits = Dictionary((semantic?.coffeeVisits ?? []).map { ($0.placeID, $0) }, uniquingKeysWith: { first, _ in first })
         var regularAccess: Set<UUID> = []
         var assessment = PlanningScheduleAssessment()
         for index in input.places.indices {
@@ -33,7 +35,13 @@ extension V41ItineraryPlanner {
             let suggestion = semantic?.stop(place.id)
             var context = PlannerV5VisitContext(activity: suggestion?.activity.suggestion,
                                                 activitySource: suggestion.map { .suggestion($0.activity.basis) })
-            if let estimate = suggestion?.duration, !place.hasExplicitVisitDuration {
+            if localDurations, !place.hasExplicitVisitDuration {
+                let minutes = place.localVisitEstimate.minutes
+                context.duration = .init(minutes: minutes ... minutes, target: minutes, source: .localEstimate)
+            } else if coffeeVisits[place.id]?.style == .unknown, !place.hasExplicitVisitDuration {
+                let quick = CoffeeVisitStyle.pickupMinutes
+                context.duration = .init(minutes: quick ... CoffeeVisitStyle.sitDownMinutes, target: quick, source: .localEstimate)
+            } else if let estimate = suggestion?.duration, !place.hasExplicitVisitDuration {
                 let minutes = estimate.suggestedSeconds / 60
                 context.duration = .init(minutes: minutes ... minutes, target: minutes, source: .suggestion(estimate.basis))
             } else if !place.hasExplicitVisitDuration {
@@ -50,8 +58,13 @@ extension V41ItineraryPlanner {
                         .init(.init(start: Self.dateV51($0.opens), end: Self.dateV51($0.closes)),
                               lastEntry: $0.last_entry.map(Self.dateV51))
                     }, source: .venue("apple_regular_hours"))
+                    context.access?.isRegularHours = true
+                } else if place.activitySession == nil {
+                    context.estimatedVisitWindow = EstimatedVisitWindow(categories: place.categories)
+                        .interval(on: input.startsAt, timeZone: input.timeZone)
                 }
-                assessment.unresolved.append(.init(code: "date_access_unverified", placeID: place.id, source: hours.source))
+                let source = context.estimatedVisitWindow == nil ? hours.source : EstimatedVisitWindow.source
+                assessment.unresolved.append(.init(code: "date_access_unverified", placeID: place.id, source: source))
             }
             switch place.visitExposure {
             case .indoor:
@@ -72,7 +85,7 @@ extension V41ItineraryPlanner {
         }
         await PocketPlanningActivity.show(.travelTimes)
         await routes.startSearch()
-        let planner = PlannerV51 { from, to, date, _ in
+        let planner = PlannerV51(canRecover: { await routes.canRecover() }) { from, to, date, _ in
             let quote = try await routes.quote(from, to, Int(date.timeIntervalSince1970 / 60))
             guard let minutes = quote.minutes else { return nil }
             return .init(seconds: minutes * 60, meters: quote.meters)
@@ -100,6 +113,8 @@ extension V41ItineraryPlanner {
                     if regularAccess.contains(id) { assessment.regularConflicts.append(row) }
                     else { assessment.conflicts.append(row) }
                 case .visitTime(let id): assessment.conflicts.append(.init(code: "required_target_missed", placeID: id))
+                case .regularHours: assessment.regularConflicts.append(.init(code: "itinerary_outside_regular_hours", source: "apple_regular_hours"))
+                case .incompatibleSchedule: assessment.conflicts.append(.init(code: "incompatible_required_schedule"))
                 case .checkIn(let id): assessment.conflicts.append(.init(code: "session_arrival_missed", placeID: id))
                 case .waiting(let id): assessment.conflicts.append(.init(code: "total_wait_exceeded", placeID: id))
                 case .deadline: assessment.conflicts.append(.init(code: "return_deadline_exceeded"))
@@ -110,10 +125,14 @@ extension V41ItineraryPlanner {
                 // Conflicts found on individual candidates do not prove that the search domain is infeasible.
                 assessment.conflicts.removeAll()
                 assessment.regularConflicts.removeAll()
-                let bounded = result.limit == .routeQuotes || result.limit == .candidates
+                let bounded = result.limit == .routeQuotes || result.limit == .recoveryQuotes || result.limit == .candidates
                     || assessment.stopReason.hasSuffix("budget_exhausted")
-                let code = assessment.stopReason == "route_throttled" ? "PROVIDER_RATE_LIMITED"
-                    : (bounded ? "V41_BUDGET_REACHED" : "V41_NO_SCHEDULE")
+                let code: String
+                if assessment.stopReason == "route_throttled" { code = "PROVIDER_RATE_LIMITED" }
+                else if bounded { code = "V41_BUDGET_REACHED" }
+                else if result.limit == .unavailableETA, input.enginePreferences?.orderingMethod == .hybridV52 {
+                    code = "V52_ETA_UNAVAILABLE"
+                } else { code = "V41_NO_SCHEDULE" }
                 throw PlanningScheduleFailure(code: code, assessment: assessment)
             }
             let deadlineOnly = !assessment.conflicts.isEmpty &&
@@ -121,19 +140,43 @@ extension V41ItineraryPlanner {
             assessment.allCandidatesMissedDeadline = deadlineOnly
             let access = !assessment.regularConflicts.isEmpty || assessment.conflicts.contains { $0.code == "visit_outside_hours_or_entry" }
             let code = deadlineOnly ? "V4_WINDOW_TOO_SHORT" : (access ? "V41_ACCESS_CONFLICT" : "V51_SCHEDULE_CONFLICT")
-            throw PlanningScheduleFailure(code: code, assessment: assessment)
+            var endpointConflict: PlanningScheduleFailure.EndpointDeadlineConflict?
+            if deadlineOnly, let endpoint = result.endpointDeadline {
+                endpointConflict = .init(fromPlaceID: endpoint.from, estimatedArrival: endpoint.arrival, deadline: input.finishBy)
+            }
+            throw PlanningScheduleFailure(code: code, assessment: assessment, endpointDeadlineConflict: endpointConflict)
         }
         assessment.completeCandidates = result.completeCandidates
         assessment.preferredPeriodOutsideMinutes = schedule.preferredTimeDeviation
         assessment.remainingMinutes = Int(input.finishBy.timeIntervalSince(schedule.finishesAt) / 60)
         let stops = zip(schedule.visits, schedule.legs).map { visit, leg in
             let place = input.places.first { $0.id == visit.placeID }!
-            let warnings = visit.duration.source == .localEstimate ? ["Visit duration is estimated by Travelants."] : []
+            let warnings = !localDurations && visit.duration.source == .localEstimate ? ["Visit duration is estimated by Travelants."] : []
             var stop = ScheduledPlanningStop(id: place.id, name: place.name, location: place.location,
                                              arrivalAt: visit.arrivesAt, departureAt: visit.endsAt,
                                              visitSeconds: visit.duration.target * 60, travelSeconds: leg.route.seconds, warnings: warnings)
             stop.visitStartsAt = visit.startsAt
             stop.roadDistanceMeters = leg.route.meters.map(Double.init)
+            if localDurations {
+                switch visit.duration.source {
+                case .reservation: stop.visitDurationAdvice = .init(rationale: "Scheduled session.")
+                case .traveller: stop.visitDurationAdvice = .init(rationale: "Duration chosen by you.")
+                case .localEstimate: stop.visitDurationAdvice = .init(rationale: place.localVisitEstimate.rationale)
+                default: break
+                }
+            } else if let choice = place.coffeeVisitIntent, place.durationOverridden == true {
+                let rationale = choice == .takeaway ? "Quick pickup, chosen by you." : "Time to sit and have coffee, chosen by you."
+                stop.visitDurationAdvice = .init(rationale: rationale)
+            } else if !place.hasExplicitVisitDuration, let coffee = coffeeVisits[place.id], coffee.style == .unknown {
+                let order = schedule.visits.map(\.placeID)
+                let affectsSchedule = result.sensitivity.contains { trial in
+                    trial.placeID == place.id && trial.minutes == CoffeeVisitStyle.sitDownMinutes &&
+                        (trial.status == .conflicts || (trial.status == .scheduled && trial.recommendedOrder != order))
+                }
+                stop.visitDurationAdvice = .init(rationale: "Quick-stop estimate. Branch service or visit intent is unconfirmed.", asksCoffeeIntent: affectsSchedule)
+            } else if !place.hasExplicitVisitDuration, let estimate = semantic?.stop(place.id)?.duration {
+                stop.visitDurationAdvice = .init(rationale: estimate.rationale, sourceURL: coffeeVisits[place.id]?.sourceURL)
+            }
             return stop
         }
         var seen: Set<String> = []
@@ -148,7 +191,7 @@ extension V41ItineraryPlanner {
         proposal.experiencePlan = semantic
         proposal.firstItinerary = true
         proposal.scheduleAssessment = assessment
-        proposal.scheduleDecision = decisionV51(result, schedule: schedule, places: input.places)
+        proposal.scheduleDecision = decisionV51(result, schedule: schedule, places: input.places, forecasts: forecasts)
         if input.enginePreferences?.scheduleSource == .automatic || input.enginePreferences?.scheduleSource == .timingAnswer {
             proposal.input.enginePreferences?.scheduleSource = .resolved
         }
@@ -181,15 +224,23 @@ extension V41ItineraryPlanner {
     }
 
     private func decisionV51(_ result: PlannerV5Result, schedule: PlannerV5Schedule,
-                             places: [PlanningPlace]) -> PlanningScheduleDecision {
+                             places: [PlanningPlace], forecasts: [UUID: PocketScheduleForecast]) -> PlanningScheduleDecision {
         let sessions = schedule.checkIns.map {
             PlanningScheduleDecision.CheckIn(id: $0.placeID, buffer: $0.bufferMinutes,
                                              target: $0.targetMinutes, shortfall: $0.shortfallMinutes)
         }
         let outdoor = schedule.outdoorVisits.map { visit in
-            PlanningScheduleDecision.Outdoor(id: visit.placeID, interval: visit.interval, readings: visit.readings.map {
-                .init(id: $0.kind.labelV51, value: $0.average, source: $0.source)
-            })
+            var readings = visit.readings.map {
+                PlanningScheduleDecision.Reading(id: $0.kind.labelV51, value: $0.average, source: $0.source)
+            }
+            let peak = forecasts[visit.placeID]?.rain.filter {
+                $0.interval.start < visit.interval.end && $0.interval.end > visit.interval.start && (0 ... 1).contains($0.probability)
+            }.max(by: { $0.probability < $1.probability })
+            if let peak {
+                readings.append(.init(id: PlanningScheduleDecision.Reading.Kind.precipitationChance.rawValue,
+                                      value: peak.probability * 100, source: peak.source))
+            }
+            return PlanningScheduleDecision.Outdoor(id: visit.placeID, interval: visit.interval, readings: readings)
         }
         var alternative: [String] = []
         if let other = result.alternative, let comparison = result.alternativeComparison {
@@ -214,9 +265,9 @@ extension V41ItineraryPlanner {
 private extension PlannerV51WeatherKind {
     var labelV51: String {
         switch self {
-        case .apparentTemperature: "Feels like (°C)"
-        case .directIrradiance: "Direct sunlight (W/m²)"
-        case .uvIndex: "UV index"
+        case .apparentTemperature: PlanningScheduleDecision.Reading.Kind.apparentTemperature.rawValue
+        case .directIrradiance: PlanningScheduleDecision.Reading.Kind.directRadiation.rawValue
+        case .uvIndex: PlanningScheduleDecision.Reading.Kind.uvIndex.rawValue
         }
     }
 }

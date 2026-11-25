@@ -49,6 +49,8 @@ The server asks Luna for focused search queries, searches through DDGS, retrieve
 
 ## Local setup
 
+The compact ordering request can opt selected coffee stops into public branch research using an address and an optional website. Luna can suggest a short pickup or a longer seated visit. Pocket only returns a verified service type when it can bind the exact service quotation to the selected street address in the same source. Ambiguous evidence stays unknown so the app can ask when the duration changes scheduling.
+
 Create a Python 3.12 virtual environment, install `requirements.txt`, and run `python -m playwright install chromium`. Copy `.env.example` into ignored `.env`, supply a random read token of at least 24 characters and the provider key (or its private env-file pointer). Never put the provider key in the app. Then run from the repo root:
 
 ```sh

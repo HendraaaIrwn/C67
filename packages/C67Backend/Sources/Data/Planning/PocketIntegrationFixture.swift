@@ -79,7 +79,7 @@
 
         public static func repository(storageURL: URL? = nil, jobClock: @escaping @Sendable () -> Date = { .now },
                                       firstOrderFailure: PlanningError? = nil, externalAIDisclosure: String? = nil,
-                                      includesPinDetails: Bool = false,
+                                      includesPinDetails: Bool = false, includesCoffeeEvidence: Bool = false,
                                       hoursPort: Int? = nil, currentOrderingOnly: Bool = false) throws -> PocketPlanningRepository {
             let interruption = OrderInterruption()
             let connection = Connection(hoursPort: hoursPort)
@@ -91,7 +91,7 @@
                                                       try await interruption.check(id, failure: firstOrderFailure)
                                                       return try experience(input)
                                                   },
-                                                  experience: { inputs, _ in try inputs.map { try experience($0) } },
+                                                  experience: { inputs, _ in try inputs.map { try experience($0, includesCoffeeEvidence: includesCoffeeEvidence) } },
                                                   hours: includesPinDetails ? Self.pinHours : nil)
             if currentOrderingOnly {
                 services.scheduleForecast = { _, start, end, _ in
@@ -126,6 +126,10 @@
         }
 
         public static func experience(_ input: PlanningInput) throws -> PlanningExperiencePlan {
+            try experience(input, includesCoffeeEvidence: false)
+        }
+
+        private static func experience(_ input: PlanningInput, includesCoffeeEvidence: Bool) throws -> PlanningExperiencePlan {
             let main = input.enginePreferences?.mainSpotID
             let stops: [[String: Any]] = input.places.map { place in
                 let unknown = place.name.contains("Unknown")
@@ -146,7 +150,13 @@
                                          "requestedModel": "cx/gpt-6-luna(max)", "reportedModel": "gpt-6-luna(max)",
                                          "orderingMethod": input.enginePreferences?.orderingMethod?.rawValue ?? "luna",
                                          "weatherSources": [], "solarWindows": [], "contextWarnings": []]
-            return try PocketOrderCodec.decoder().decode(PlanningExperiencePlan.self, from: JSONSerialization.data(withJSONObject: object))
+            var plan = try PocketOrderCodec.decoder().decode(PlanningExperiencePlan.self, from: JSONSerialization.data(withJSONObject: object))
+            if includesCoffeeEvidence, let index = plan.stops.firstIndex(where: { $0.duration != nil }) {
+                plan.stops[index].duration?.rationale = "Synthetic branch lists seating."
+                plan.coffeeVisits = [.init(placeID: plan.stops[index].placeID, style: .sitDown,
+                                           sourceURL: URL(string: "https://fixture.invalid/branch"))]
+            }
+            return plan
         }
     }
 #endif

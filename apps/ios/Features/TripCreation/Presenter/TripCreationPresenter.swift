@@ -61,6 +61,7 @@ import C67Domain
     var usesV5Scheduler: Bool { orderingMethod().usesV5Scheduler }
     var usesV41: Bool { orderingMethod().usesFlexibleSchedule }
     var automaticallySchedules: Bool { planning.supportsOnDevicePlanning && usesV41 }
+    private var usesLocalVisitDurations: Bool { planning.supportsOnDevicePlanning && orderingMethod() == .hybridV52 }
     var usesFoundationModels: Bool { orderingMethod() == .hybridV42FoundationModels }
     var scheduleAssessment: PlanningScheduleAssessment? { planning.firstItineraryJob?.scheduleAssessment }
     var scheduleSummary: String {
@@ -211,7 +212,12 @@ import C67Domain
     func syncPlaces() {
         planning.places = selected.map { item in
             var place = item.place
-            if item.id == mainSpot.placeID, let seconds = stay?.visitSeconds { place.visitSeconds = seconds }
+            if item.id == mainSpot.placeID, let seconds = stay?.visitSeconds {
+                if !usesLocalVisitDurations || !place.hasExplicitVisitDuration && place.visitActivity == nil {
+                    place.visitSeconds = seconds
+                    if usesLocalVisitDurations { place.durationOverridden = true }
+                }
+            }
             return place
         }
         planning.draftChanged()
@@ -317,7 +323,8 @@ import C67Domain
 
     func plan() async {
         guard !Task.isCancelled, !isProcessing, !planning.isBusy else { return }
-        if planning.requiresExternalAIConsent, !usesFoundationModels {
+        if planning.requiresExternalAIConsent, !usesFoundationModels,
+           !usesLocalVisitDurations || planning.enginePreferences?.semanticAssistance == .requested {
             let session = planning.sessionGeneration
             let hasConsent = await planning.hasExternalAIConsent()
             guard !Task.isCancelled, session == planning.sessionGeneration else { return }
@@ -334,6 +341,11 @@ import C67Domain
                 }
             }
             if automaticallySchedules, !hasConsent {
+                if (missingDuration != nil || planning.enginePreferences?.semanticAssistance == .requested),
+                   planning.externalAIAvailable, planning.enginePreferences?.semanticAssistance != .disabled {
+                    requestsAIConsent = true
+                    return
+                }
                 var preferences = planning.enginePreferences ?? PlanningPreferences()
                 preferences.externalAIConsentID = nil
                 preferences.semanticAssistance = .disabled
@@ -412,19 +424,22 @@ import C67Domain
         }
     }
 
-    private func planFirstItinerary() async {
+    private func planFirstItinerary(approvedAlternative: PlanningDurationAlternative? = nil) async {
         let started = ContinuousClock.now
         reviewTiming = nil
         guard planning.origin != nil else { error = "Choose a starting point to prepare your itinerary."; return }
-        planning.mode = .automobile
-        planning.preservesPlaceOrder = false
-        planning.enginePreferences?.mainSpotID = mainSpot.placeID
-        planning.draftChanged()
+        if approvedAlternative == nil {
+            planning.mode = .automobile
+            planning.preservesPlaceOrder = false
+            planning.enginePreferences?.mainSpotID = mainSpot.placeID
+            planning.draftChanged()
+        }
         isProcessing = true; error = nil
         defer { isProcessing = false }
         let routeBeforeRequest = route
         let session = planning.sessionGeneration
-        if checksExistingRequest { await planning.checkStatus() }
+        if let approvedAlternative { await planning.acceptDurationAlternative(approvedAlternative) }
+        else if checksExistingRequest { await planning.checkStatus() }
         else { await planning.request(.firstItinerary) }
         guard !Task.isCancelled, session == planning.sessionGeneration, !planning.privateAccessBlocked, route == routeBeforeRequest else { return }
         if planning.creationIssue == nil, let job = planning.job, job.purpose == .firstItinerary,
@@ -482,6 +497,7 @@ import C67Domain
         if let minutes {
             selected[index].place.visitSeconds = minutes * 60
             selected[index].place.durationOverridden = true
+            if usesLocalVisitDurations { selected[index].place.visitActivity = nil }
             if let minimum = selected[index].place.minimumAcceptedVisitSeconds, minimum > minutes * 60 {
                 selected[index].place.minimumAcceptedVisitSeconds = minutes * 60
             }
@@ -542,9 +558,18 @@ import C67Domain
         push(.availability)
     }
     func acceptDurationAlternative(_ alternative: PlanningDurationAlternative) async {
-        guard !isProcessing, !planning.isBusy else { return }
+        guard !isProcessing, !planning.isBusy, scheduleAssessment?.durationAlternatives.contains(alternative) == true,
+              let index = selected.firstIndex(where: { $0.id == alternative.placeID }) else { return }
+        if usesLocalVisitDurations, alternative.activity != nil {
+            alternative.apply(to: &selected[index].place)
+            restoredJobID = nil
+            await planFirstItinerary(approvedAlternative: alternative)
+            return
+        }
         let input = planning.firstItineraryJob?.input
-        setVisitDuration(alternative.placeID, minutes: alternative.proposedSeconds / 60)
+        alternative.apply(to: &selected[index].place)
+        syncPlaces()
+        restoredJobID = nil
         if let start = alternative.startsAt ?? input?.startsAt { planning.startsAt = start }
         if let finish = alternative.finishBy ?? input?.finishBy { planning.finishBy = finish }
         planning.enginePreferences?.usesAutomaticTripDate = false
@@ -571,7 +596,8 @@ import C67Domain
                 preferences.usesAutomaticTripDate = timing == nil
             }
             let canUseExternalAI = planning.requiresExternalAIConsent ? preferences.externalAIConsentID != nil : preferences.usesLuna
-            preferences.allowsAIProcessing = (usesFoundationModels || canUseExternalAI) && preferences.semanticAssistance != .disabled
+            let requestsAdvice = usesLocalVisitDurations ? preferences.semanticAssistance == .requested : preferences.semanticAssistance != .disabled
+            preferences.allowsAIProcessing = (usesFoundationModels || canUseExternalAI) && requestsAdvice
         }
         planning.enginePreferences = preferences
     }

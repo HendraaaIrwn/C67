@@ -19,6 +19,13 @@ import SwiftUI
                     .flatMap { arguments.dropFirst($0 + 1).first }
                     .flatMap(PlanningOrderingMethod.init(rawValue:))
                 let lateDate = ProcessInfo.processInfo.arguments.contains("--pocket-late-day-fixture") ? PocketIntegrationFixture.lateDay() : nil
+                if arguments.contains("--v52-tight-duration-fixture") {
+                    let fixture = PocketIntegrationFixture.input()
+                    planning.startsAt = fixture.startsAt
+                    planning.finishBy = fixture.startsAt.addingTimeInterval(280 * 60)
+                    planning.enginePreferences?.scheduleSource = .manual
+                    planning.enginePreferences?.usesAutomaticTripDate = false
+                }
                 return TripCreationPresenter(planning: planning, mode: mode, specificPlace: specificPlace,
                                              interactor: .init(searcher: PocketFixtureTripPlaceSearch()),
                                              orderingMethod: { testsOrderingTimeout ? .luna : (fixtureMethod ?? .hybridV52) }, clock: { lateDate ?? .now })

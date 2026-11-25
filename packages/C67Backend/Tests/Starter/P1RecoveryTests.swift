@@ -18,7 +18,7 @@ private actor P1ModelCalls {
 }
 
 @Test(arguments: [false, true])
-func p1ActiveTripKeepsExtendedStayAndReturnsToEndpointWithoutCallingLuna(hasActivitySession: Bool) async throws {
+func p1ActiveTripKeepsExtendedStayAndCompletesAtFinalVisitWithoutCallingLuna(hasActivitySession: Bool) async throws {
     let now = try #require(ISO8601DateFormatter().date(from: "2026-11-19T09:00:00+07:00"))
     let clock = TestClock()
     clock.advance(now.timeIntervalSince(clock.now()))
@@ -73,15 +73,62 @@ func p1ActiveTripKeepsExtendedStayAndReturnsToEndpointWithoutCallingLuna(hasActi
     trip = try await event(.completeStop, trip: trip, stopID: first.id)
     let second = try #require(trip.nextStop)
     trip = try await event(.arrive, trip: trip, stopID: second.id)
+    let finalArrival = try #require(trip.currentArrivedAt)
     trip = try await event(.completeStop, trip: trip, stopID: second.id)
-    #expect(trip.status == .active)
-    #expect(trip.pendingEndpoint == input.origin)
-    trip = try await event(.arriveAtEndpoint, trip: trip)
     #expect(trip.status == .completed)
+    #expect(trip.pendingEndpoint == nil)
+    #expect(trip.visitedAtByStopID?[second.id] == finalArrival)
     #expect(await model.count == 1)
 }
 
-@Test func p1EditDateUsesNewLunaEstimateAndKeepsOrder() async throws {
+@Test func pocketRestoresLegacyReturnToOriginAndReplaysFinalVisitAsCompleted() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let storage = directory.appendingPathComponent("trips.json")
+    var input = try v41Input(count: 1)
+    input.enginePreferences?.returnToOrigin = true
+    let place = try #require(input.places.first)
+    let arrival = input.startsAt
+    let stop = ScheduledPlanningStop(id: place.id, name: place.name, location: place.location, arrivalAt: arrival,
+                                     departureAt: arrival.addingTimeInterval(Double(place.visitSeconds)),
+                                     visitSeconds: place.visitSeconds, travelSeconds: 0, warnings: [])
+    var replanned = input
+    replanned.origin = place.location
+    replanned.enginePreferences?.endPoint = input.origin
+    let proposal = PlanProposal(id: UUID(), input: replanned, stops: [stop], finishesAt: nil, feasible: true,
+                                explanation: "Synthetic saved trip", warnings: [], evidence: [], synthetic: true)
+    let legacy = PersonalPlanningTrip(id: UUID(), title: input.title, revision: 5, status: .active, input: input,
+                                      plan: proposal, completedStopIDs: [stop.id], visitedAtByStopID: [stop.id: arrival],
+                                      synthetic: true, createdAt: arrival)
+    #expect(legacy.pendingEndpoint == input.origin)
+    let event = PlanningEvent(requestID: UUID(), expectedRevision: legacy.revision - 1, kind: .completeStop, stopID: stop.id, extraSeconds: nil)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .sortedKeys
+    let fingerprint = try encoder.encode(event) + Data(legacy.id.uuidString.utf8)
+    let store = LegacyReturnStore(trips: [legacy.id: legacy], receipts: [event.requestID: .trip(fingerprint, legacy)])
+    try encoder.encode(store).write(to: storage)
+
+    let repository = try PocketPlanningRepository(services: v41Services(V41Calls(), model: false),
+                                                  connection: P1Connection(), storageURL: storage, synthetic: true)
+    var completed = legacy
+    completed.status = .completed
+    #expect(await repository.personalTrips() == [completed])
+    #expect(try await repository.recordEvent(tripID: legacy.id, event: event) == completed)
+}
+
+private struct LegacyReturnStore: Encodable {
+    enum Receipt: Encodable {
+        case trip(Data, PersonalPlanningTrip)
+    }
+
+    let trips: [UUID: PersonalPlanningTrip]
+    let receipts: [UUID: Receipt]
+    let jobs: [UUID: PlanningJob] = [:]
+    let applied: [UUID: PersonalPlanningTrip] = [:]
+}
+
+@Test func p1EditDateUpgradesToLocalDurationsAndKeepsOrder() async throws {
     let model = P1ModelCalls()
     var services = v41Services(V41Calls(), model: false)
     services.experience = { inputs, _ in try await model.experience(inputs) }
@@ -92,13 +139,15 @@ func p1ActiveTripKeepsExtendedStayAndReturnsToEndpointWithoutCallingLuna(hasActi
     input.enginePreferences?.allowsAIProcessing = true
     input.enginePreferences?.usesLuna = true
     input.places[0].durationOverridden = false
+    input.places[0].categories = ["museum"]
     let request = try await repository.requestPlan(.init(requestID: UUID(), purpose: .firstItinerary, input: input))
     let original = try await finished(repository, id: request.id)
     let departure = try #require(original.result?.proposal?.departureAt).addingTimeInterval(86400)
     let edited = try await repository.updateExperienceRoute(jobID: request.id, orderedIDs: nil, departure: departure)
     #expect(edited.result?.proposal?.departureAt == departure)
     #expect(edited.result?.proposal?.stops.map(\.id) == input.places.map(\.id))
-    #expect(await model.count == 2)
+    #expect(edited.result?.proposal?.stops.first?.visitSeconds == 75 * 60)
+    #expect(await model.count == 1)
 }
 
 @Test func p1PartialComparisonKeepsAValidatedDateWhenNextDateIsUnavailable() async throws {

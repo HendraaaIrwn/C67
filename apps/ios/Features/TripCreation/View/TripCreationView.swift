@@ -23,6 +23,7 @@ struct TripCreationView: View {
     @State private var showsStartingPointSearch = false
     @State private var scheduleOptions: ScheduleOptions?
     @State private var showsScheduleDetails = false
+    @State private var pendingDurationAlternative: PlanningDurationAlternative?
     @State private var pendingScheduleTarget: ScheduleField?
     @State private var showsMyPlaces = false
 
@@ -69,14 +70,14 @@ struct TripCreationView: View {
         }
         .confirmationDialog("Use AI to help plan this trip?", isPresented: $presenter.requestsAIConsent, titleVisibility: .visible) {
             Button("Allow AI assistance for this trip") { run { await presenter.chooseExternalAI(true) } }
-            Button("Enter durations myself") { run { await presenter.chooseExternalAI(false) } }
+            Button(presenter.automaticallySchedules ? "Use local estimates" : "Enter durations myself") { run { await presenter.chooseExternalAI(false) } }
             if let policy = TravelantsPrivacy.policyURL {
                 Button("Privacy Policy") { openPrivacyURL(policy) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             if let recipient = TravelantsPrivacy.aiRecipient {
-                Text("Travelants sends selected places and pins, your starting and ending points, trip dates, time zone and preferences to Pocket. Pocket shares selected place details, dates, preferences and weather context with \(recipient) to suggest activities and visit durations.")
+                Text("Travelants sends selected places and pins, your starting and ending points, trip dates, time zone and preferences to Pocket. Pocket can search public information for a selected café branch using its name and address. Pocket shares selected place details, public sources, dates, preferences and weather context with \(recipient) to suggest activities and visit durations.")
             }
         }
         .onChange(of: presenter.manualDurationTarget) { _, id in
@@ -93,7 +94,10 @@ struct TripCreationView: View {
             PlacesSelectionSheet(places: presenter.selected, remove: presenter.toggle)
         }
         .sheet(isPresented: $showsScheduleDetails, onDismiss: {
-            if let target = pendingScheduleTarget {
+            if let alternative = pendingDurationAlternative {
+                pendingDurationAlternative = nil
+                run { await presenter.acceptDurationAlternative(alternative) }
+            } else if let target = pendingScheduleTarget {
                 pendingScheduleTarget = nil
                 scheduleOptions = .field(target)
             }
@@ -101,6 +105,26 @@ struct TripCreationView: View {
             NavigationStack {
                 List {
                     if let assessment = presenter.scheduleAssessment, let input = presenter.planning.firstItineraryJob?.input {
+                        if !assessment.durationAlternatives.isEmpty {
+                            Section("Duration alternatives") {
+                                ForEach(assessment.durationAlternatives) { alternative in
+                                    let name = presenter.selected.first { $0.id == alternative.placeID }?.place.name ?? "Visit"
+                                    Button {
+                                        pendingDurationAlternative = alternative
+                                        showsScheduleDetails = false
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("Use \(alternative.proposedSeconds / 60) min at \(name) instead of \(alternative.originalSeconds / 60) min")
+                                            if let activity = alternative.activity {
+                                                Text(String(localized: String.LocalizationValue(activity.title)))
+                                                    .font(.footnote).foregroundStyle(.secondary)
+                                            }
+                                        }
+                                    }
+                                    .accessibilityIdentifier("acceptShorterVisit")
+                                }
+                            }
+                        }
                         if !assessment.conflicts.isEmpty || !assessment.regularConflicts.isEmpty {
                             Section("Conflicts") {
                                 ForEach(Array((assessment.conflicts + assessment.regularConflicts).enumerated()), id: \.offset) { _, issue in
@@ -124,18 +148,6 @@ struct TripCreationView: View {
                                 }
                             }
                         }
-                        if !presenter.automaticallySchedules, !assessment.durationAlternatives.isEmpty {
-                            Section("Duration alternatives") {
-                                ForEach(assessment.durationAlternatives) { alternative in
-                                    let name = presenter.selected.first { $0.id == alternative.placeID }?.place.name ?? "Visit"
-                                    Button("Use \(alternative.proposedSeconds / 60) min at \(name) instead of \(alternative.originalSeconds / 60) min") {
-                                        showsScheduleDetails = false
-                                        run { await presenter.acceptDurationAlternative(alternative) }
-                                    }
-                                    .accessibilityIdentifier("acceptShorterVisit")
-                                }
-                            }
-                        }
                         if !presenter.automaticallySchedules,
                            (assessment.conflicts + assessment.regularConflicts + assessment.unresolved).contains(where: { $0.placeID != nil }) {
                             Section {
@@ -155,8 +167,7 @@ struct TripCreationView: View {
         }
         .fullScreenCover(isPresented: $showsStartingPointSearch) {
             PlanningSearchSheet(near: presenter.planning.origin, title: "Starting point") { place in
-                presenter.planning.origin = place.location
-                presenter.planning.originLabel = place.name
+                presenter.planning.selectOrigin(place)
                 presenter.planning.draftChanged()
                 run { await presenter.plan() }
             }
@@ -190,8 +201,7 @@ struct TripCreationView: View {
                                           requiresOrigin: true, origin: presenter.planning.origin,
                                           setOrigin: { place in
                                               presenter.cancelRecommendations()
-                                              presenter.planning.origin = place.location
-                                              presenter.planning.originLabel = place.name
+                                              presenter.planning.selectOrigin(place)
                                               presenter.planning.draftChanged()
                                           },
                                           maximumSelection: TripCreationPresenter.maximumPlaces,
@@ -209,7 +219,7 @@ struct TripCreationView: View {
                                      usesV41: presenter.usesV41,
                                      usesFoundationModels: presenter.usesFoundationModels,
                                      scheduleSummary: showsManualScheduleControl ? presenter.scheduleSummary : nil,
-                                     editSchedule: showsManualScheduleControl || (presenter.automaticallySchedules && presenter.usesV5Scheduler) ? { openScheduleOptions() } : nil)
+                                     editSchedule: showsManualScheduleControl || showsAutomaticTripOptions ? { openScheduleOptions() } : nil)
             case .stay:
                 StayDurationQuestionView(placeName: presenter.selected.first(where: { $0.id == presenter.mainSpot.placeID })?.place.name ?? "your main spot",
                                          selection: presenter.stay,
@@ -277,6 +287,9 @@ struct TripCreationView: View {
     }
 
     private var secondaryPlanningAction: RecoveryNotice.Action? {
+        if presenter.scheduleAssessment?.durationAlternatives.isEmpty == false {
+            return .init(title: "Review shorter visit") { pendingScheduleTarget = nil; showsScheduleDetails = true }
+        }
         if presenter.scheduleAssessment != nil {
             return .init(title: "View schedule details") { pendingScheduleTarget = nil; showsScheduleDetails = true }
         }
@@ -289,9 +302,10 @@ struct TripCreationView: View {
     private func planningMessage(_ message: String, code: String?) -> String {
         switch code {
         case "V4_DURATION_UNKNOWN": "A visit duration is unavailable. Add it to continue."
+        case "V41_ACCESS_CONFLICT" where presenter.scheduleAssessment?.regularConflicts.contains(where: { $0.code == "itinerary_outside_regular_hours" }) == true:
+            "The visits don’t all fit within the available regular opening hours."
         case "V41_ACCESS_CONFLICT": "A visit conflicts with available hours or an activity session."
         case "V41_DATE_CONFLICT": "A confirmed visit falls outside the trip date."
-        case "V41_BUDGET_REACHED": "Route checking stopped before a complete schedule could be verified."
         case "V41_NO_SCHEDULE": "No complete schedule was verified among the routes checked."
         default: message
         }
@@ -336,7 +350,10 @@ struct TripCreationView: View {
             if presenter.planning.firstItineraryJob?.errorCode == "V4_DURATION_UNKNOWN" { return "Visit duration needed" }
             return "Stopped before checking routes"
         }
-        if day.stopReason.hasSuffix("_budget_exhausted") { return "Route checking reached its limit" }
+        if day.stopReason == "unavailableETA" { return "Travel estimates unavailable" }
+        if ["routeQuotes", "recoveryQuotes", "candidates"].contains(day.stopReason) || day.stopReason.hasSuffix("_budget_exhausted") {
+            return "Route checking reached its limit"
+        }
         return "No complete schedule verified"
     }
 
@@ -372,6 +389,10 @@ struct TripCreationView: View {
 
     private var showsManualScheduleControl: Bool {
         presenter.planning.supportsOnDevicePlanning && !presenter.automaticallySchedules
+    }
+
+    private var showsAutomaticTripOptions: Bool {
+        AppMode.current != .staging && presenter.automaticallySchedules && presenter.usesV5Scheduler
     }
 
     private func openScheduleOptions() {

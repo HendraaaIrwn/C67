@@ -12,7 +12,10 @@ final class PlanningPresenter {
         return result
     }
     var title = "My trip"
-    var origin: PlanningPoint?
+    var origin: PlanningPoint? {
+        didSet { if origin != oldValue { originName = nil } }
+    }
+    private var originName: String?
     var originLabel = "Choose a starting point"
     var places: [PlanningPlace] = []
     var preferences = ""
@@ -80,7 +83,10 @@ final class PlanningPresenter {
             if supportsOnDevicePlanning { enginePreferences?.returnToOrigin = true }
             (startsAt, finishBy) = Self.defaultPocketWindow(after: .now)
         }
-        if let initialInput { setDraft(initialInput); originLabel = "Synthetic starting point" }
+        if let initialInput {
+            setDraft(initialInput)
+            originLabel = initialInput.originName ?? "Synthetic starting point"
+        }
     }
     private static func defaultPocketWindow(after now: Date) -> (Date, Date) {
         var calendar = Calendar(identifier: .gregorian)
@@ -94,7 +100,11 @@ final class PlanningPresenter {
     }
 
     private func setDraft(_ value: PlanningInput) {
+        let originChanged = origin != value.origin
         title = value.title; origin = value.origin; places = value.places; preferences = value.preferences
+        originName = value.originName
+        if let originName { originLabel = originName }
+        else if originChanged { originLabel = "Restored starting point" }
         startsAt = value.startsAt; finishBy = value.finishBy; timeZone = value.timeZone; mode = value.mode
         preservesPlaceOrder = value.preservesPlaceOrder
         enginePreferences = value.enginePreferences
@@ -103,6 +113,7 @@ final class PlanningPresenter {
         guard let origin else { return nil }
         var input = PlanningInput(title: title, origin: origin, places: places, preferences: preferences,
                                   startsAt: startsAt, finishBy: finishBy, timeZone: timeZone, mode: mode, preservesPlaceOrder: preservesPlaceOrder)
+        if supportsOnDevicePlanning { input.originName = originName }
         input.enginePreferences = enginePreferences
         return input
     }
@@ -192,6 +203,13 @@ final class PlanningPresenter {
     }
     func receivedLocation(_ point: PlanningPoint) {
         origin = point; originLabel = "Current device position"; reportedPosition = (point, Date())
+        originName = nil
+    }
+    func selectOrigin(_ place: PlanningPlace) {
+        origin = place.location
+        let name = place.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        originName = name.isEmpty ? nil : name
+        originLabel = originName ?? "Choose a starting point"
     }
     func receivedReplanningLocation(_ point: PlanningPoint) { reportedPosition = (point, Date()) }
     func loadPocketConnection() async { pocketConnection = await interactor.repository.engineConnection() }
@@ -282,7 +300,7 @@ final class PlanningPresenter {
                 if let tripID = resumed.tripID {
                     guard saved.first(where: { $0.id == tripID })?.revision == resumed.baseRevision else { return }
                 } else if !places.isEmpty, resumed.input != draftInput, resumed.command?.input != draftInput { return }
-                if resumed.tripID == nil && places.isEmpty { setDraft(resumed.command?.input ?? resumed.input); originLabel = "Restored starting point" }
+                if resumed.tripID == nil && places.isEmpty { setDraft(resumed.command?.input ?? resumed.input) }
                 if resumed.status == .running || resumed.status == .queued { pendingRequest = resumed.command }
                 if resumed.purpose == .firstItinerary, !waitForFirstItinerary {
                     job = resumed
@@ -299,7 +317,17 @@ final class PlanningPresenter {
                          jobID: resumableJob?.id))
         }
     }
-    func request(_ purpose: PlanningPurpose = .plan, trip: PersonalPlanningTrip? = nil, reviewing: Bool = false, replacementDeparture: Date? = nil) async {
+    func acceptDurationAlternative(_ alternative: PlanningDurationAlternative, reviewing: Bool = false) async {
+        guard !isBusy, !privateAccessBlocked, let source = job, source.status == .failed,
+              source.scheduleAssessment?.durationAlternatives.contains(alternative) == true,
+              let draft = draftInput, let approved = alternative.applying(to: draft) else { return }
+        setDraft(approved)
+        draftChanged()
+        await request(source.purpose, reviewing: reviewing, durationAlternativeJobID: source.id)
+    }
+
+    func request(_ purpose: PlanningPurpose = .plan, trip: PersonalPlanningTrip? = nil, reviewing: Bool = false,
+                 replacementDeparture: Date? = nil, durationAlternativeJobID: UUID? = nil) async {
         let scope: PresentationIssue.Scope = reviewing ? .review : .planning(trip?.id)
         let operation = PresentationIssue.Operation.plan(purpose)
         guard !privateAccessBlocked else { record(.init(PlanningError.authenticationRequired, scope: scope, operation: operation)); return }
@@ -311,12 +339,14 @@ final class PlanningPresenter {
             let command: PlanningRequest
             if let pendingRequest, pendingRequest.purpose == purpose, pendingRequest.input == input,
                pendingRequest.tripID == trip?.id, pendingRequest.baseRevision == trip?.revision,
-               pendingRequest.replacementDeparture == replacementDeparture { command = pendingRequest }
+               pendingRequest.replacementDeparture == replacementDeparture,
+               durationAlternativeJobID == nil || pendingRequest.durationAlternativeJobID == durationAlternativeJobID { command = pendingRequest }
             else {
                 let position = reportedPosition.flatMap { Date().timeIntervalSince($0.1) <= 30 ? $0.0 : nil }
                 var draftCommand = PlanningRequest(requestID: UUID(), purpose: purpose, input: input, tripID: trip?.id,
                                                    baseRevision: trip?.revision, currentOrigin: trip == nil ? nil : position)
                 draftCommand.replacementDeparture = replacementDeparture
+                draftCommand.durationAlternativeJobID = durationAlternativeJobID
                 command = draftCommand
                 pendingRequest = command
             }
@@ -580,13 +610,38 @@ final class PlanningPresenter {
             let value = try await interactor.repository.prepareStart(tripID: trip.id, expectedRevision: trip.revision)
             guard ticket == generation else { throw CancellationError() }
             return value
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if ticket == generation {
-                let cause = (error as? PlanningScheduleFailure).map { PlanningError.failed($0.code) } ?? error
-                record(.init(cause, scope: scope, operation: .event(.start, extraSeconds: nil)))
+                let scheduleFailure = error as? PlanningScheduleFailure
+                let cause = scheduleFailure.map { PlanningError.failed($0.code) } ?? error
+                let message = scheduleFailure?.endpointDeadlineConflict.flatMap { startDeadlineMessage($0, plan: trip.plan) }
+                record(.init(cause, scope: scope, operation: .event(.start, extraSeconds: nil), messageOverride: message))
             }
             throw error
         }
+    }
+
+    private func startDeadlineMessage(_ conflict: PlanningScheduleFailure.EndpointDeadlineConflict, plan: PlanProposal) -> String? {
+        guard let from = plan.stops.first(where: { $0.id == conflict.fromPlaceID })?.name,
+              let endpoint = plan.input.planningEndpoint else { return nil }
+        let returnsToOrigin = endpoint == plan.input.origin
+        let to = (returnsToOrigin ? plan.input.originName : nil) ?? plan.input.enginePreferences?.endPointName
+            ?? (returnsToOrigin ? String(localized: "starting point") : String(localized: "trip end point"))
+        let zone = plan.input.timeZone
+        let sameDay = PlanningDayWindow.isSameDay(conflict.estimatedArrival, conflict.deadline, timeZone: zone)
+        func timeLabel(_ date: Date) -> String {
+            let time = ItineraryFormatting.time(date, zone: zone, locale: .current)
+            if sameDay { return time }
+            return "\(ItineraryFormatting.date(date, zone: zone, locale: .current)) \(time)"
+        }
+        let arrival = timeLabel(conflict.estimatedArrival)
+        let deadline = timeLabel(conflict.deadline)
+        if returnsToOrigin {
+            return String(localized: "Return leg \(from) → \(to). Estimated arrival \(arrival). Deadline \(deadline). Adjust your schedule before starting.")
+        }
+        return String(localized: "Final leg \(from) → \(to). Estimated arrival \(arrival). Deadline \(deadline). Adjust your schedule before starting.")
     }
 
     func event(_ kind: PlanningEventKind, trip: PersonalPlanningTrip, extraSeconds: Int? = nil, preparationID: UUID? = nil) async {

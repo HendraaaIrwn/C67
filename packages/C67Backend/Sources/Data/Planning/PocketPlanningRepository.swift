@@ -50,7 +50,16 @@ public actor PocketPlanningRepository: PlanningRepository {
         let preparation: PlanningStartPreparation
     }
 
+    private struct StartRouteCheck {
+        let revision: Int
+        let configurationRevision: Int
+        let progress: TripStartRouting.Progress
+        var isChecking: Bool
+    }
+
     private var preparedStarts: [UUID: PreparedStart] = [:]
+    private var startRouteChecks: [UUID: StartRouteCheck] = [:]
+    private var verifiedDurationAlternative: (jobID: UUID, proposal: PlanProposal)?
     private var pendingOrderWrites: [UUID: PlanningJob] = [:]
     private var orderTasks: [UUID: Task<Void, Never>] = [:]
     private var orderActivity: [UUID: PlanningActivity] = [:]
@@ -79,6 +88,13 @@ public actor PocketPlanningRepository: PlanningRepository {
             do { restoredState = try JSONDecoder().decode(State.self, from: bytes) }
             catch is DecodingError { throw PlanningError.failed("TRIP_STORAGE_CORRUPT") }
             var restored = restoredState
+            // Apply the current completion rule to saved trips and their replayable snapshots.
+            restored.trips = restored.trips.mapValues(Self.completingLastStop)
+            restored.applied = restored.applied.mapValues(Self.completingLastStop)
+            restored.receipts = restored.receipts.mapValues { receipt in
+                guard case .trip(let fingerprint, let trip) = receipt else { return receipt }
+                return .trip(fingerprint, Self.completingLastStop(trip))
+            }
             for id in restored.jobs.keys {
                 guard let job = restored.jobs[id], job.status == .running,
                       job.input.enginePreferences?.reasonableOrdering != true || job.command == nil else { continue }
@@ -108,6 +124,7 @@ public actor PocketPlanningRepository: PlanningRepository {
     public func updateEngineConnection(serverURL: String, token: String) async throws {
         try await connection.update(serverURL: serverURL, token: token)
         configurationRevision += 1
+        verifiedDurationAlternative = nil
     }
 
     public func grantExternalAIConsent() async throws -> UUID {
@@ -144,6 +161,7 @@ public actor PocketPlanningRepository: PlanningRepository {
     private func needsExternalAI(_ input: PlanningInput) -> Bool {
         guard let options = input.enginePreferences, options.orderingMethod?.usesFlexibleSchedule == true else { return true }
         guard options.orderingMethod != .hybridV42FoundationModels, options.semanticAssistance != .disabled else { return false }
+        if options.orderingMethod == .hybridV52 { return options.semanticAssistance == .requested && options.usesLuna }
         return options.semanticAssistance == .requested || input.places.contains { !$0.hasExplicitVisitDuration }
     }
 
@@ -300,9 +318,19 @@ public actor PocketPlanningRepository: PlanningRepository {
         var job = PlanningJob(id: UUID(), status: .running, purpose: request.purpose, input: input,
                               tripID: request.tripID, baseRevision: request.baseRevision, result: nil, errorCode: nil, createdAt: jobClock())
         job.command = request
+        if let proposal = reusableDurationProposal(for: request, input: input, at: job.createdAt) {
+            try Task.checkCancellation()
+            job.status = .succeeded
+            job.input = proposal.input
+            job.originalInput = request.input
+            job.result = .init(proposal: proposal, candidates: [], warnings: proposal.warnings, synthetic: synthetic)
+            job.scheduleAssessment = proposal.scheduleAssessment
+        }
         var next = state
         next.jobs[job.id] = job; next.receipts[request.requestID] = .job(fingerprint, job.id); next.pending = job.id
         try commit(next)
+        verifiedDurationAlternative = nil
+        if job.status == .succeeded { return job }
         if usesOrdering {
             startOrdering(job)
             return job
@@ -326,6 +354,21 @@ public actor PocketPlanningRepository: PlanningRepository {
             logger.error("request_failed purpose=\(request.purpose.rawValue, privacy: .public) code=\((error as NSError).code)")
             throw error
         }
+    }
+
+    private func reusableDurationProposal(for request: PlanningRequest, input: PlanningInput, at now: Date) -> PlanProposal? {
+        guard request.purpose == .firstItinerary || request.purpose == .plan,
+              request.tripID == nil, request.baseRevision == nil,
+              let sourceID = request.durationAlternativeJobID, state.pending == sourceID,
+              let source = state.jobs[sourceID], source.status == .failed, source.purpose == request.purpose,
+              let verified = verifiedDurationAlternative, verified.jobID == sourceID else { return nil }
+        let proposal = verified.proposal
+        guard proposal.input == input, proposal.feasible,
+              let checkedAt = proposal.experienceRouteCheckedAt, (0 ..< 120).contains(now.timeIntervalSince(checkedAt)),
+              let departure = proposal.departureAt, departure.timeIntervalSince1970 >= floor(now.timeIntervalSince1970 / 60) * 60,
+              !requiresExternalAIConsent || !needsExternalAI(input) || hasValidExternalAIConsent(input.enginePreferences?.externalAIConsentID)
+        else { return nil }
+        return proposal
     }
 
     private func execute(_ input: PlanningInput, purpose: PlanningPurpose, requestID: UUID) async throws -> PlanningResult {
@@ -805,6 +848,8 @@ public actor PocketPlanningRepository: PlanningRepository {
     public func suspendOrdering() {
         configurationRevision += 1
         preparedStarts.removeAll()
+        startRouteChecks.removeAll()
+        verifiedDurationAlternative = nil
         orderActivity.removeAll()
         for task in orderTasks.values { task.cancel() }
     }
@@ -863,6 +908,7 @@ public actor PocketPlanningRepository: PlanningRepository {
                 job.status = .failed
                 job.errorCode = failure.code
                 job.scheduleAssessment = failure.assessment
+                verifiedDurationAlternative = failure.verifiedDurationProposal.map { (jobID: id, proposal: $0) }
             } else if planningError == .timedOut {
                 job.status = .running; job.errorCode = "ORDER_REQUEST_TIMED_OUT"
             } else if planningError == .unavailable || error is CancellationError {
@@ -1149,17 +1195,36 @@ public actor PocketPlanningRepository: PlanningRepository {
         }
         let currentMinute = floor(now.timeIntervalSince1970 / 60)
         let revision = configurationRevision
+        guard startRouteChecks[tripID]?.isChecking != true else { throw CancellationError() }
+        preparedStarts[tripID] = nil
         var proposal = trip.plan
         if floor(departure.timeIntervalSince1970 / 60) != currentMinute {
             proposal.departureAt = now
             if currentOrderingOnly { useCurrentOrdering(&proposal.input) }
-            proposal = try await calculateExperienceRoute(proposal)
+            startRouteChecks = startRouteChecks.filter { _, check in
+                check.isChecking || (check.configurationRevision == revision && check.progress.expiresAt > .now)
+            }
+            let previous = startRouteChecks[tripID]
+            let progress = previous.flatMap { $0.revision == expectedRevision ? $0.progress : nil } ?? TripStartRouting.Progress()
+            startRouteChecks[tripID] = .init(revision: expectedRevision, configurationRevision: revision, progress: progress, isChecking: true)
+            defer {
+                if startRouteChecks[tripID]?.progress === progress { startRouteChecks[tripID]?.isChecking = false }
+            }
+            let startRouting = TripStartRouting(progress: progress, deadline: .now.advanced(by: .seconds(25)))
+            let pending = proposal
+            do {
+                proposal = try await TripStartRouting.before(startRouting.deadline) {
+                    try await self.calculateExperienceRoute(pending, startRouting: startRouting)
+                }
+            } catch is TripStartRouting.DeadlineReached {
+                throw PlanningError.failed("START_VERIFICATION_TIMEOUT")
+            }
         }
         try Task.checkCancellation()
         guard revision == configurationRevision, state.trips[tripID] == trip else { throw PlanningError.revisionConflict }
+        guard proposal.feasible else { throw PlanningError.invalidResponse }
         let preparation = PlanningStartPreparation(id: UUID(), proposal: proposal,
-                                                   scheduleChanged: proposal.departureAt != trip.plan.departureAt ||
-                                                       proposal.stops != trip.plan.stops || proposal.finishesAt != trip.plan.finishesAt)
+                                                   requiresConfirmation: proposal.requiresStartConfirmation(comparedTo: trip.plan))
         preparedStarts[tripID] = .init(revision: expectedRevision, expiresAt: now.addingTimeInterval(120), preparation: preparation)
         return preparation
     }
@@ -1442,7 +1507,8 @@ public actor PocketPlanningRepository: PlanningRepository {
         return count
     }
 
-    private func calculateExperienceRoute(_ proposal: PlanProposal, reusing previous: PlanProposal? = nil) async throws -> PlanProposal {
+    private func calculateExperienceRoute(_ proposal: PlanProposal, reusing previous: PlanProposal? = nil,
+                                          startRouting: TripStartRouting? = nil) async throws -> PlanProposal {
         if proposal.input.enginePreferences?.orderingMethod?.usesFlexibleSchedule == true {
             var returnedInput = proposal.input
             if returnedInput.enginePreferences?.orderingMethod?.replacesLegacyV42 == true {
@@ -1453,17 +1519,30 @@ public actor PocketPlanningRepository: PlanningRepository {
             let stopIDs = proposal.stops.map(\.id)
             guard stopIDs.count == places.count, Set(stopIDs) == Set(places.keys) else { throw PlanningError.invalidInput }
             input.places = stopIDs.compactMap { places[$0] }
+            if input.enginePreferences?.orderingMethod == .hybridV52 {
+                // Rechecking a proposal uses the visit lengths that were reviewed with it.
+                for (index, stop) in proposal.stops.enumerated() where stop.visitSeconds > 0 {
+                    input.places[index].visitSeconds = stop.visitSeconds
+                    input.places[index].durationOverridden = true
+                }
+            }
             input.preservesPlaceOrder = true
             input.enginePreferences?.flexibleDeparture = false
             input.enginePreferences?.scheduleSource = .manual
             input.startsAt = proposal.departureAt ?? input.startsAt
-            let routes = V41RouteSession(input: input, services: services)
+            let routes = V41RouteSession(input: input, services: services, startRouting: startRouting)
             let planner = V41ItineraryPlanner(services: services, hours: { await self.openingHours(placeID: $0) }, synthetic: synthetic)
             let preparedHours = input.enginePreferences?.orderingMethod == .hybridV52
                 ? try await planner.prepareHours(for: input.places, requestID: proposal.id, batch: true)
                 : [:]
             var routed = try await planner.schedule(input, semantic: proposal.experiencePlan, routes: routes,
-                                                    preparedHours: preparedHours, requestID: proposal.id)
+                                                    preparedHours: preparedHours, requestID: proposal.id,
+                                                    includesAlternatives: input.enginePreferences?.orderingMethod != .hybridV52)
+            if input.enginePreferences?.orderingMethod == .hybridV52 {
+                for (index, stop) in proposal.stops.enumerated() {
+                    routed.stops[index].visitDurationAdvice = stop.visitDurationAdvice
+                }
+            }
             routed.input = returnedInput
             return routed
         }
@@ -1571,6 +1650,7 @@ public actor PocketPlanningRepository: PlanningRepository {
             orderTasks.removeValue(forKey: jobID)?.cancel()
         }
         preparedStarts[id] = nil
+        startRouteChecks[id] = nil
     }
 
     public func recordEvent(tripID: UUID, event: C67Domain.PlanningEvent) throws -> PersonalPlanningTrip {
@@ -1606,7 +1686,7 @@ public actor PocketPlanningRepository: PlanningRepository {
                 trip.visitedAtByStopID = visits
             }
             trip.completedStopIDs.append(nextStop.id); trip.currentStopID = nil; trip.currentArrivedAt = nil
-            if trip.completedStopIDs.count == trip.plan.stops.count, trip.plan.input.planningEndpoint == nil { trip.status = .completed }
+            trip = Self.completingLastStop(trip)
         case .arriveAtEndpoint:
             guard trip.pendingEndpoint != nil, event.stopID == nil else { throw PlanningError.invalidInput }
             trip.status = .completed
@@ -1619,8 +1699,20 @@ public actor PocketPlanningRepository: PlanningRepository {
         trip.revision += 1
         var next = state; next.trips[trip.id] = trip; next.receipts[event.requestID] = .trip(fingerprint, trip)
         try commit(next)
-        if event.kind == .start { preparedStarts[tripID] = nil }
+        if event.kind == .start {
+            preparedStarts[tripID] = nil
+            startRouteChecks[tripID] = nil
+        }
         return trip
+    }
+
+    private static func completingLastStop(_ trip: PersonalPlanningTrip) -> PersonalPlanningTrip {
+        guard trip.status == .active, !trip.plan.stops.isEmpty, trip.nextStop == nil else { return trip }
+        // Active replans can store the original starting point as an explicit endpoint.
+        if let endpoint = trip.plan.input.enginePreferences?.endPoint, endpoint != trip.input.origin { return trip }
+        var completed = trip
+        completed.status = .completed
+        return completed
     }
 
     private func commit(_ value: State) throws {

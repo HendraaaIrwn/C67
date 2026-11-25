@@ -85,6 +85,12 @@ extension PlanningExperiencePlan {
                   window.date == candidateDate, window.timeZone == timeZone,
                   day(window.start) == candidateDate, day(window.end) == candidateDate else { throw PlanningError.invalidResponse }
         }
+        let coffee = coffeeVisits ?? []
+        guard Set(coffee.map(\.placeID)).count == coffee.count, coffee.allSatisfy({ visit in
+            guard ids.contains(visit.placeID) else { return false }
+            if visit.style == .unknown { return visit.sourceURL == nil && stop(visit.placeID)?.duration == nil }
+            return visit.sourceURL?.scheme == "https" && visit.sourceURL?.host != nil && stop(visit.placeID)?.duration != nil
+        }) else { throw PlanningError.invalidResponse }
         for stop in stops {
             guard !stop.activity.suggestion.isEmpty, !stop.reason.isEmpty,
                   ["name_inference", "user_preference", "fixture_attribute", "unknown"].contains(stop.activity.basis),
@@ -131,6 +137,9 @@ extension PocketResearchClient {
             var name: String
             var location: PlanningPoint
             var categories: [String]
+            var researchCoffee: Bool?
+            var address: String?
+            var website: String?
         }
         struct Body: Encodable {
             var requestID: UUID
@@ -156,7 +165,15 @@ extension PocketResearchClient {
             var comparisonResults: [PlanningExperiencePlan]?
         }
         let comparisonDates = inputs.dropFirst().map(PocketOrderCodec.candidateDay)
-        let selected = input.places.map { Place(id: $0.id, name: $0.name, location: $0.location, categories: $0.categories) }
+        let selected = input.places.map { place in
+            let words = place.name.lowercased().split { !$0.isLetter }
+            let coffee = place.categories.contains { ["cafe", "coffee", "coffee_shop", "mkpoicategorycafe"].contains($0.lowercased()) }
+                || words.contains { ["coffee", "kopi", "cafe", "café", "kafe"].contains(String($0)) }
+            let research = input.enginePreferences?.orderingMethod == .hybridV42 && coffee && !place.hasExplicitVisitDuration
+            return Place(id: place.id, name: place.name, location: place.location, categories: place.categories,
+                         researchCoffee: research ? true : nil, address: research ? place.address : nil,
+                         website: research ? place.website?.absoluteString : nil)
+        }
         let body = Body(requestID: requestID, places: selected, preferences: input.preferences,
                         origin: input.origin, endpoint: input.enginePreferences?.endPoint ?? input.origin,
                         mainSpotID: input.enginePreferences?.mainSpotID, firstPlaceID: input.firstPlaceID,

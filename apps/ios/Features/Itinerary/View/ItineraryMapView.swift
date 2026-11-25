@@ -99,7 +99,7 @@ struct ItineraryMapView: View {
                 }
             }
 
-            if !showsTripDetails, let decision = proposal.scheduleDecision {
+            if AppMode.current != .staging, !showsTripDetails, let decision = proposal.scheduleDecision {
                 DisclosureGroup("Schedule decision") {
                     VStack(alignment: .leading, spacing: 12) {
                         scheduleDecision(decision)
@@ -204,25 +204,25 @@ struct ItineraryMapView: View {
                         .accessibilityIdentifier("itineraryExpandedMap")
                         .overlay { stopCardOverlay }
                 }
-                    .task(id: selectedStopID) {
-                        if let stop = selectedStop {
-                            await focusMap(on: stop)
-                        } else {
-                            await restoreOverview()
-                        }
+                .task(id: selectedStopID) {
+                    if let stop = selectedStop {
+                        await focusMap(on: stop)
+                    } else {
+                        await restoreOverview()
                     }
-                    .task(id: selectedStopID) { await loadSelectedAddress() }
-                    .safeAreaInset(edge: .bottom) {
-                        if routeUnavailable { routeFailure.background(.regularMaterial) }
+                }
+                .task(id: selectedStopID) { await loadSelectedAddress() }
+                .safeAreaInset(edge: .bottom) {
+                    if routeUnavailable { routeFailure.background(.regularMaterial) }
+                }
+                .navigationTitle("Itinerary map")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showsFullMap = false }
+                            .accessibilityIdentifier("itineraryCloseMap")
                     }
-                    .navigationTitle("Itinerary map")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showsFullMap = false }
-                                .accessibilityIdentifier("itineraryCloseMap")
-                        }
-                    }
+                }
             }
         }
     }

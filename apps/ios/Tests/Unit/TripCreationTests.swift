@@ -29,6 +29,10 @@ import C67Domain
         #expect(reading.temperature.value == 29)
         #expect(reading.condition == "Rain")
         #expect(reading.source == "Open-Meteo")
+        #expect(reading.feelsLikeCelsius == nil)
+        #expect(reading.uvIndex == nil)
+        #expect(reading.directRadiation == nil)
+        #expect(reading.precipitationChance == nil)
         #expect(throws: DepartureWeatherLoader.ForecastFailure.noForecastForDeparture) {
             try DepartureWeatherLoader.decodeOpenMeteo(data, departure: Date(timeIntervalSince1970: 12_000))
         }
@@ -39,6 +43,25 @@ import C67Domain
         #expect(throws: (any Error).self) {
             try DepartureWeatherLoader.decodeOpenMeteo(badUnits, departure: Date(timeIntervalSince1970: 3600))
         }
+    }
+
+    @Test func departurePreparationMatchesInstantAndPrecedingHourMetrics() throws {
+        let data = Data(#"""
+        {"hourly_units":{"time":"unixtime","temperature_2m":"°C","apparent_temperature":"°C","uv_index":"","direct_radiation":"W/m²","precipitation_probability":"%"},
+         "hourly":{"time":[3600,7200,10800,18000],"temperature_2m":[24,29,28,30],"weather_code":[0,1,0,1],
+         "apparent_temperature":[27,35,32,34],"uv_index":[0,null,9,4],"direct_radiation":[0,75,620,300],"precipitation_probability":[0,10,60,101]}}
+        """#.utf8)
+        let forecast = try DepartureWeatherLoader.decodeOpenMeteo(data, departure: Date(timeIntervalSince1970: 7200))
+        #expect(forecast.feelsLikeCelsius == 35)
+        #expect(forecast.uvIndex == 9)
+        #expect(forecast.directRadiation == 620)
+        #expect(forecast.precipitationChance == 0.6)
+
+        let gap = try DepartureWeatherLoader.decodeOpenMeteo(data, departure: Date(timeIntervalSince1970: 10800))
+        #expect(gap.feelsLikeCelsius == 32)
+        #expect(gap.uvIndex == nil)
+        #expect(gap.directRadiation == nil)
+        #expect(gap.precipitationChance == nil)
     }
 
     private func make(specific: Bool = true, repository: any PlanningRepository = MockPlanningRepository(),
@@ -162,6 +185,20 @@ import C67Domain
         #expect(next.selected.map(\.id) == [place.id])
         #expect(planning.draftInput?.places.map(\.id) == [place.id])
         #expect(oldIDs.isDisjoint(with: Set(planning.places.map(\.id))))
+    }
+
+    @Test func selectedStartingPointNameFollowsTheSavedDraftCoordinates() throws {
+        let repository = TripFlowRepositoryStub(supportsOnDevicePlanning: true)
+        let presenter = PlanningPresenter(interactor: .init(repository: repository))
+        let point = PlanningPoint(latitude: -6.243464, longitude: 106.798194)
+        presenter.selectOrigin(.init(id: UUID(), name: "  Blok M MRT  ", location: point, visitSeconds: 0))
+        let input = try #require(presenter.draftInput)
+        #expect(input.origin == point)
+        #expect(input.originName == "Blok M MRT")
+        let restored = PlanningPresenter(interactor: .init(repository: repository), initialInput: input)
+        #expect(restored.originLabel == "Blok M MRT")
+        restored.receivedLocation(point)
+        #expect(restored.draftInput?.originName == nil)
     }
 
     @Test func loadingDuringNewTripDoesNotRestoreThePreviousPendingJob() async throws {
@@ -638,7 +675,7 @@ import C67Domain
         #expect(revised.plan.departureAt == replacementDeparture)
 
         let confirmation = try #require(await planning.prepareStart(revised))
-        #expect(confirmation.scheduleChanged)
+        #expect(confirmation.requiresConfirmation)
         #expect(confirmation.proposal.departureAt == now)
         #expect(planning.trips.first == revised)
         await planning.event(.start, trip: revised)
@@ -652,8 +689,11 @@ import C67Domain
         #expect(started.plan == confirmation.proposal)
     }
 
-    @Test func replanPreservesProgressAndRestoresPendingEndpointFromDisk() async throws {
-        let input = try savedTripFixture()
+    @Test func replanPreservesProgressAndRestoresCustomEndpointFromDisk() async throws {
+        var input = try savedTripFixture()
+        let endpoint = try #require(input.places.first?.location)
+        input.enginePreferences?.endPoint = endpoint
+        input.enginePreferences?.endPointName = "Synthetic custom endpoint"
         let now = input.startsAt
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -680,7 +720,7 @@ import C67Domain
         let preview = try #require(planning.job?.result?.proposal)
         #expect(preview.stops.map(\.id) == [second.id])
         #expect(preview.stops.first?.departureAt == extendedDeparture)
-        #expect(preview.input.planningEndpoint == input.origin)
+        #expect(preview.input.planningEndpoint == endpoint)
         #expect(preview.experiencePlan == nil)
         #expect(planning.trips.first == extended)
         await planning.apply(scope: .planning(extended.id))
@@ -693,7 +733,7 @@ import C67Domain
         await planning.event(.completeStop, trip: updated)
         let pending = try #require(planning.trips.first)
         #expect(pending.status == .active)
-        #expect(pending.pendingEndpoint == input.origin)
+        #expect(pending.pendingEndpoint == endpoint)
         let reopened = try PocketIntegrationFixture.repository(storageURL: storage, jobClock: { now })
         let restoredPlanning = PlanningPresenter(interactor: .init(repository: reopened))
         await restoredPlanning.load(resumesJobs: false)
@@ -701,7 +741,7 @@ import C67Domain
         #expect(restored.id == pending.id)
         #expect(restored.status == .active)
         #expect(restored.completedStopIDs == [first.id, second.id])
-        #expect(restored.pendingEndpoint == input.origin)
+        #expect(restored.pendingEndpoint == endpoint)
 
         await restoredPlanning.event(.arriveAtEndpoint, trip: restored)
         let completed = try #require(restoredPlanning.trips.first)

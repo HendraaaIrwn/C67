@@ -40,6 +40,7 @@ public struct PlannerV5Access: Sendable {
     /// An empty confirmed or regular set means closed for the supplied date.
     public var windows: [Window]
     public var source: PlannerV5Source
+    package var isRegularHours = false
 
     public init(windows: [Window], source: PlannerV5Source) {
         self.windows = windows
@@ -70,6 +71,7 @@ public struct PlannerV5VisitContext: Sendable {
     public var exposure: PlannerV5Exposure?
     public var exposureSource: PlannerV5Source?
     public var access: PlannerV5Access?
+    public var estimatedVisitWindow: DateInterval?
     public var goals: Set<PlannerV5Goal>
     public var rain: [PlannerV5RainSample]
     public var light: [PlannerV5Light]
@@ -81,6 +83,7 @@ public struct PlannerV5VisitContext: Sendable {
     public init(activity: String? = nil, activitySource: PlannerV5Source? = nil,
                 duration: PlannerV5Duration? = nil, exposure: PlannerV5Exposure? = nil,
                 exposureSource: PlannerV5Source? = nil, access: PlannerV5Access? = nil,
+                estimatedVisitWindow: DateInterval? = nil,
                 goals: Set<PlannerV5Goal> = [], rain: [PlannerV5RainSample] = [],
                 light: [PlannerV5Light] = [], lightSource: String? = nil,
                 sunExposure: PlannerV51SunExposure? = nil, sunExposureSource: PlannerV5Source? = nil,
@@ -91,6 +94,7 @@ public struct PlannerV5VisitContext: Sendable {
         self.exposure = exposure
         self.exposureSource = exposureSource
         self.access = access
+        self.estimatedVisitWindow = estimatedVisitWindow
         self.goals = goals
         self.rain = rain
         self.light = light
@@ -166,6 +170,7 @@ public struct PlannerV5Schedule: Sendable {
     public let drivingMinutes: Int
     public let waitingMinutes: Int
     public let preferredTimeDeviation: Int
+    let estimatedHoursDeviation: Int
     public let metrics: [PlannerV5Metric]
     public internal(set) var checkIns: [PlannerV51CheckIn] = []
     public internal(set) var outdoorVisits: [PlannerV51OutdoorVisit] = []
@@ -173,7 +178,13 @@ public struct PlannerV5Schedule: Sendable {
 
 public enum PlannerV5Issue: Hashable, Sendable {
     case access(UUID), visitTime(UUID), checkIn(UUID), waiting(UUID), deadline
+    case regularHours, incompatibleSchedule
     case etaUnavailable(from: UUID?, to: UUID?)
+}
+
+public struct PlannerV5EndpointDeadline: Sendable {
+    public let from: UUID
+    public let arrival: Date
 }
 
 public enum PlannerV5Status: Equatable, Sendable {
@@ -181,7 +192,7 @@ public enum PlannerV5Status: Equatable, Sendable {
 }
 
 public enum PlannerV5Limit: Equatable, Sendable {
-    case shortlist, routeQuotes, candidates, sensitivity, unavailableETA
+    case shortlist, routeQuotes, recoveryQuotes, candidates, sensitivity, unavailableETA
 }
 
 public enum PlannerV5Information: Equatable, Sendable {
@@ -221,6 +232,7 @@ public struct PlannerV5Result: Sendable {
     public let evaluatedCandidates: Int
     public let completeCandidates: Int
     public let reason: String
+    public let endpointDeadline: PlannerV5EndpointDeadline?
 
     public var comparisonWithFastest: PlannerV51Comparison? {
         guard let schedule, let fastestComparable else { return nil }

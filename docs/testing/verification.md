@@ -1,5 +1,79 @@
 # Starter verification
 
+## Shorter visit approval with verified ETAs — 26 November 2026
+
+C67Backend recorded 216 tests with one opt-in benchmark skip. The six-stop Simulator flow passed. On iPhone 17 (iOS 27.2.1), C67 Staging and live MapKit opened Review in 3.27 seconds after one tap on the 45-minute option. The replay used zero scheduling ETA requests after approval and preserved all six stops. The ordinary updated build was installed and launched. [Scope and physical evidence](../tasks/v52-local-visit-durations.md#reuse-the-route-when-approving-a-shorter-visit)
+
+## Local v5.2 visit durations — 26 November 2026
+
+The C67Backend suite recorded 215 tests and one opt-in benchmark skip. Three synthetic Simulator UI tests passed on iPhone 18 Pro (iOS 27.2). Review showed the museum estimate and the café activity estimates. The six-stop itinerary retained all visits after accepting a verified shorter museum activity. The package test withheld the option when the return ETA was unavailable. C67 Staging built in the Staging configuration for Simulator. [Scope and results](../tasks/v52-local-visit-durations.md)
+
+On iPhone 17 (iOS 27.2.1), the ordinary C67 Staging build installed and launched. Isolated native UI tests with live MapKit discovery and ETAs verified Museum Polri and Filosofi Kopi. The six-stop test used a controlled museum access window and required approval for the 45-minute option. Immediate approval triggered MapKit burst throttling twice. After a 55-second pause before approval, the replay reached Review with all six durations and reasons. [Physical evidence](../tasks/v52-local-visit-durations.md#physical-iphone-verification)
+
+## Itinerary availability before route estimates — 26 November 2026
+
+The C67Backend run recorded 211 tests and one opt-in benchmark skip. Synthetic regressions checked that a three-stop trip which cannot fit combined regular opening hours requests route estimates only for tomorrow, that manual dates and locked visit times retain their constraints, and that missing ETA remains an unresolved route check. Two mock UI tests passed on iPhone 18 Pro Simulator (iOS 27.2) for next-day itinerary review and v5.2 review and save. [Scope and results](../tasks/automatic-itinerary-estimated-hours.md#follow-up-check-the-complete-itinerary-before-requesting-routes)
+
+On physical iPhone 17 (iOS 27.2.1), Get Recommendations at a controlled 16:00 WIB for three Kota Tua museums led to a 09:00 WIB departure the following day. The test used a snapshot of published venue hours and live MapKit travel estimates. Review showed all three selected places and the reason for the new date. [Physical test details](../tasks/automatic-itinerary-estimated-hours.md#physical-iphone-verification)
+
+The live-source iPhone follow-up passed with MapKit recommendations and three venue hours records fetched from public websites during the test. The 16:00 WIB request moved to 09:00 WIB the following day, with zero ETA requests for the original date and 24 live MapKit requests for the next date. This test used an isolated public-hours adapter. [Live device evidence](../tasks/automatic-itinerary-estimated-hours.md#physical-iphone-verification-with-live-recommendations-and-published-hours)
+
+## Automatic itinerary opening hours — 25 November 2026
+
+A synthetic 16:00 Jakarta request for three museums reproduced a same-day itinerary outside estimated opening hours. After the fix, the automatic request selected tomorrow within the estimates. A fixed 19:30 departure kept its date, and a request with available regular hours kept a valid same-day itinerary. [Scope and verification](../tasks/automatic-itinerary-estimated-hours.md)
+
+## Luna coffee branch durations — 25 November 2026
+
+Local synthetic Pocket tests verified branch-bound takeaway and seating evidence. SwiftPM verified the coffee-intent gate against tight and roomy itinerary windows. A Staging-mode iPhone 18 Pro Simulator Review showed the branch rationale and source link. The Python suite passed 72 tests and SwiftPM recorded 207 with one opt-in skip. The contract check passed. [Scope and evidence](../tasks/luna-branch-visit-duration.md)
+
+## Resumable Go Trip verification — 25 November 2026
+
+Synthetic Museum Polri and six-stop routes both started after an injected return ETA timeout. They used three and eight ETA requests respectively. Each requested the return twice and other legs once. Further tests covered manual resume, changed departure minutes, throttling, and return deadlines. The package run recorded 203 tests with one opt-in skip. A focused start-flow UI test passed on iPhone 18 Pro Simulator. The signed `C67 Staging` build installed and launched on physical iPhone 17. [Scope and evidence](../tasks/go-trip-resumable-verification.md)
+
+Physical Staging UI follow-up on iPhone 17 / iOS 27.2.1 used live MapKit with one injected return timeout for each route. One Go Trip tap recovered the ETA and reached schedule confirmation in both tests. The trip became active after one confirmation tap. [Physical test setup and results](../tasks/go-trip-resumable-verification.md#physical-staging-ui-with-live-mapkit)
+
+After adding the five-minute timing tolerance, both physical Staging UI scenarios became active from one Go Trip tap with live MapKit and an injected return timeout. Museum Polri activated in 1.53 s and the six-stop itinerary in 2.49 s. A focused iPhone Simulator app test and the package checks verified that material changes still require confirmation. The ordinary updated Staging build installed and launched on the same iPhone. [One-tap verification](../tasks/go-trip-resumable-verification.md#start-directly-after-a-small-timing-adjustment)
+
+Two more physical Staging UI controls passed. The six-stop itinerary shifted six minutes earlier with live MapKit and stayed planned until explicit confirmation. In the Museum Polri control, adding 15 minutes to the live return ETA exceeded the 09:40 WIB deadline and left the trip planned without a start confirmation. [Physical controls](../tasks/go-trip-resumable-verification.md#physical-controls-for-a-material-shift-and-a-conflict)
+
+After adding deadline details, the physical Museum Polri replay showed the return leg, estimated arrival at 09:51 WIB, and the 09:40 WIB deadline. The trip stayed planned. The package suite passed with 205 recorded tests and one opt-in skip. [Deadline notice verification](../tasks/go-trip-resumable-verification.md#explain-the-return-deadline-conflict)
+
+The starting point name now survives saving and reopening an on-device trip. The named Museum Polri Staging replay on the physical iPhone showed Museum Polri → Blok M MRT. A focused Simulator test covered the selected name in the draft, and the package run recorded 206 tests with one opt-in skip. [Named starting point verification](../tasks/go-trip-resumable-verification.md#show-the-selected-starting-point-name)
+
+## Return route navigation layout — 25 November 2026
+
+The generic Simulator build and four focused UI tests passed on iPhone 18 Pro Simulator (iOS 27.2). The tests covered the full-screen return route, shared active-trip controls, Back to summary, and the return action at accessibility XXXL in Dark Mode. [Scope and evidence](../tasks/trip-completion-return-flow.md#follow-up-match-the-active-trip-navigation-layout)
+
+On physical iPhone 17 (iOS 27.2.1), live MapKit displayed the instruction banner and return route using a simulated public position. The final staging build verified the white button label and Back to summary in the on-device design preview. [Physical test evidence](../tasks/trip-completion-return-flow.md#follow-up-match-the-active-trip-navigation-layout)
+
+## Return route inside Travelants — 25 November 2026
+
+The generic Simulator build and three UI tests passed on iPhone 18 Pro Simulator (iOS 27.2). The return action opened the in-app map, and closing it restored the completion summary. The labeled sample route displayed a line and estimate in the design preview. [Scope and evidence](../tasks/trip-completion-return-flow.md#follow-up-return-route-inside-travelants)
+
+The latest signed staging build installed on iPhone 17 (iOS 27.2.1). The physical UI test verified the live MapKit route line and driving estimate with a synthetic trip and simulated public position, then closed the map back to Trip complete. C67Backend reported 203 tests with one opt-in skip. [Physical test evidence](../tasks/trip-completion-return-flow.md#follow-up-return-route-inside-travelants)
+
+## Direct trip completion after the last visit — 25 November 2026
+
+On iPhone 18 Pro Simulator (iOS 27.2), a synthetic Pocket trip with a planned return opened Trip complete directly after the last visit, kept the visit times, and dismissed with Done. A second UI test verified the return-directions preview action. The iPhone 18 Pro Max Simulator app test verified that a distinct custom endpoint still required arrival after restoring the trip. C67Backend reported 199 tests with one opt-in skip, including legacy trip restoration and final-visit replay. [Scope and evidence](../tasks/trip-completion-return-flow.md)
+
+The signed staging update passed the physical iPhone 17 (iOS 27.2.1) test. Finish last visit opened Trip complete directly, and Return to starting point foregrounded Apple Maps in driving directions mode with Starting point as the destination. [Physical test evidence](../tasks/trip-completion-return-flow.md#physical-iphone-verification--25-november-2026)
+
+## Before you go weather tips — 25 November 2026
+
+The staging-mode itinerary review on iPhone 18 Pro Simulator / iOS 27.2 displayed precipitation, feels-like heat, UV, and direct sunlight preparations together using synthetic forecasts. Both departure forecast decoding tests passed. C67Backend passed with 198 scenarios recorded, including one opt-in skip. A live Open-Meteo response for public Blok M coordinates confirmed the fields and units independently of the Simulator tests. [Scope and evidence](../tasks/itinerary-preparation-weather.md)
+
+The installed signed development update passed two physical UI tests on iPhone 17 / iOS 27.2.1. Museum Polri and the six-stop itinerary reached Review with live MapKit and live Open-Meteo. Both showed rain gear (49% chance of precipitation), water (feels like 32 °C), sun protection (UV 4.2), and the opening-hours reminder. [Physical test details](../tasks/itinerary-preparation-weather.md#physical-iphone-live-forecast-follow-up)
+
+## Implemented v5.2 ETA recovery — 25 November 2026
+
+The updated Pocket repository ran both public fixtures with live MapKit in a signed benchmark on a physical iPhone 17 / iOS 27.2.1. The Blok M museum completed with five ETA calls in 1.052 s. The six-stop itinerary verified every visit and the mandatory return at 12:43 WIB with 16 ETA calls in 2.979 s. Both used the first candidate in the frozen recovery list. SwiftPM passed 197 tests with one opt-in skip, and the focused v5.2 itinerary and save test passed on iPhone 18 Pro Max Simulator / iOS 27.2. The broader mock check passed 63 of 66 tests, with all three selection-stage failures reproduced on the pre-change commit. [Implementation and verification](../tasks/planner-v52-eta-recovery.md)
+
+The installed Travelants development build then passed both physical UI checks on the same iPhone. With controlled public inputs and live MapKit, the actual Trip Creation flow reached Itinerary Review for the museum and all six stops. The screens proposed 08:49 and 08:51 WIB respectively. [Physical UI results](../tasks/planner-v52-eta-recovery.md#physical-travelants-ui-follow-up)
+
+## Travelants v5.2 route recovery on iPhone — 25 November 2026
+
+A standalone Release benchmark on physical iPhone 17 / iOS 27.2.1 compared the v5.2 evaluator with bounded ETA-based recovery against the native MapKit adapter. Recovery completed the Blok M museum in both pairs and the six-stop return trip in one of two pairs. The original search found no full itinerary in those pairs. A tight-return variant exercised one ranking refresh and exhausted its recovery allowance before establishing a complete plan. This covers the prototype scheduler and live routing on the device. [Setup, timings and limitations](../research/planner-v52-reliability.md#live-mapkit-comparison-on-physical-iphone)
+
 ## Travelants map sign-in — 23 November 2026
 
 The selected map design passed the generic Simulator build, two Apple sign-in unit tests, and six mock UI tests on iPhone 18 Pro Simulator (iOS 27.2). The UI tests covered cold launch, entry, privacy, App Review sign-in, session restoration, and both deletion paths. Light and Dark renders were inspected on iPhone and iPad, along with Accessibility XXXL on iPhone. The C67Backend package passed 158 tests. [Task and captures](../tasks/travelants-map-sign-in.md)
