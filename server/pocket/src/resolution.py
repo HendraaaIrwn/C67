@@ -28,15 +28,22 @@ def stamp():
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def public_url(url):
+def public_endpoint(url):
     parts = urlsplit(url)
     if parts.scheme not in {"http", "https"} or not parts.hostname or parts.username or parts.password:
         raise ValueError("Source must be a public HTTP URL")
     if parts.port and parts.port not in {80, 443}:
         raise ValueError("Source port is unsupported")
-    addresses = socket.getaddrinfo(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80))
-    if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    addresses = socket.getaddrinfo(parts.hostname, port, type=socket.SOCK_STREAM)
+    ips = [ipaddress.ip_address(row[4][0]) for row in addresses]
+    if not ips or any(not ip.is_global or ip.is_multicast for ip in ips):
         raise ValueError("Source resolves to a non-public address")
+    return str(ips[0])
+
+
+def public_url(url):
+    public_endpoint(url)
     return url
 
 
@@ -49,8 +56,10 @@ def digest(value):
 
 
 class WebReader:
-    def __init__(self):
-        self.client = httpx.Client(timeout=30, headers={"User-Agent": USER_AGENT}, follow_redirects=False)
+    def __init__(self, *, public_https_only=False):
+        self.public_https_only = public_https_only
+        options = dict(trust_env=False, limits=httpx.Limits(max_keepalive_connections=0)) if public_https_only else {}
+        self.client = httpx.Client(timeout=30, headers={"User-Agent": USER_AGENT}, follow_redirects=False, **options)
         self.policies = {}
 
     def close(self):
@@ -58,17 +67,29 @@ class WebReader:
 
     def get(self, url):
         for _ in range(6):
-            public_url(url)
-            with self.client.stream("GET", url) as response:
+            ip = public_endpoint(url)
+            target, options = url, {}
+            if self.public_https_only:
+                origin = httpx.URL(url)
+                if origin.scheme != "https" or origin.port not in {None, 443}:
+                    raise ValueError("Source must use HTTPS")
+                # Connect to the checked address and keep TLS verification and HTTP routing on the original host.
+                target = origin.copy_with(host=ip)
+                options = dict(headers={"Host": origin.netloc.decode("ascii")},
+                               extensions={"sni_hostname": origin.raw_host.decode("ascii")})
+            with self.client.stream("GET", target, **options) as response:
                 if response.is_redirect:
-                    url = urljoin(url, response.headers["location"])
+                    location = response.headers.get("location")
+                    if not location:
+                        raise ValueError("Source redirect has no destination")
+                    url = urljoin(url, location)
                     continue
                 data = bytearray()
                 for chunk in response.iter_bytes():
                     data.extend(chunk)
                     if len(data) > 3_000_000:
                         raise ValueError("Source exceeded size limit")
-                return response.status_code, bytes(data).decode("utf-8", errors="replace"), str(response.url)
+                return response.status_code, bytes(data).decode("utf-8", errors="replace"), url if self.public_https_only else str(response.url)
         raise ValueError("Too many source redirects")
 
     def permitted(self, url):

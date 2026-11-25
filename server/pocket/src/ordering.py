@@ -359,8 +359,11 @@ class OrderingResolver:
         payload = dict(places=base["places"], mainSpotID=base["mainSpotID"], wishes=base["userPreferences"]["wishes"],
                        timeZone=base["planningContext"]["timeZone"], days=[compact_day(context) for context, _ in contexts])
         coffee = [place for place in base["places"] if place.get("researchCoffee")]
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            documents = dict(zip((place["id"] for place in coffee), pool.map(coffee_documents, coffee)))
+        documents = {}
+        if coffee:
+            selected = coffee[:6]  # The timed planner supports up to six stops.
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                documents = dict(zip((place["id"] for place in selected), pool.map(coffee_documents, selected)))
         prompt = COMPACT_PROMPT
         if any(documents.values()):
             payload["coffeeBranchDocuments"] = documents
@@ -439,7 +442,7 @@ def coffee_documents(place):
         candidates += [row["url"] for row in search_place(place, [query])]
     except (ImportError, ValueError, OSError, httpx.HTTPError):
         pass
-    reader = WebReader()
+    reader = WebReader(public_https_only=True)
     reader.client.timeout = httpx.Timeout(5)
     documents = []
     try:
@@ -468,7 +471,7 @@ def verify_coffee_visits(places, documents, claims):
         if len(rows) != 1:
             continue
         claim = rows[0]
-        source = next((doc for doc in documents[ident] if doc["id"] == claim.get("sourceID")), None)
+        source = next((doc for doc in documents.get(ident, []) if doc["id"] == claim.get("sourceID")), None)
         branch, service = claim.get("branchQuote"), claim.get("serviceQuote")
         if not source or any(not isinstance(quote, str) or not 3 <= len(quote) <= 320 or quote not in source["text"]
                              for quote in (branch, service)):
