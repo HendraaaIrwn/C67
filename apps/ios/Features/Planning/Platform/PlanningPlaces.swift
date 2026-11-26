@@ -318,10 +318,17 @@ final class PlanningPinnedLocation {
         point = next
         isResolving = true
         defer { if ticket == generation { isResolving = false } }
-        let mark = try? await geocoder.reverseGeocodeLocation(CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)).first
+        let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let label: (name: String?, address: String?) = await withCheckedContinuation { continuation in
+            geocoder.reverseGeocodeLocation(location) { @Sendable marks, error in
+                let mark = error == nil ? marks?.first : nil
+                let address = LocationAreaName.format(district: mark?.subLocality, city: mark?.locality, province: mark?.administrativeArea)
+                continuation.resume(returning: (mark?.name ?? mark?.thoroughfare, address))
+            }
+        }
         guard ticket == generation, !Task.isCancelled else { return }
-        name = mark?.name ?? mark?.thoroughfare
-        address = LocationAreaName.format(district: mark?.subLocality, city: mark?.locality, province: mark?.administrativeArea)
+        name = label.name
+        address = label.address
     }
 
     private static func distance(_ first: PlanningPoint, _ second: PlanningPoint) -> CLLocationDistance {
