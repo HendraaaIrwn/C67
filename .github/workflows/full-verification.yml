@@ -21,32 +21,31 @@ jobs:
       - run: npm run format:check --prefix server/planning
       - run: npm test --prefix server/planning
   style:
-    runs-on: macos-15-intel
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - name: Pinned Swift layout check
         run: python3 scripts/swift_format.py --check
   ios:
-    runs-on: macos-15-intel
+    runs-on: xcode-27
     timeout-minutes: 30
     env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
       - name: Shared package tests
         run: swift test --package-path packages/C67Backend
       - name: Mock Simulator and session tests
         shell: bash
+        env:
+          C67_VERIFY_XCODE_VERSION: '27.2'
+          C67_VERIFY_IOS_VERSION: '27.2'
+          C67_VERIFY_IPHONE_MODEL: iPhone 18 Pro
+          C67_VERIFY_DERIVED_DATA: ${{ runner.temp }}/c67-ci
+          C67_VERIFY_RESULT_BUNDLE: ${{ runner.temp }}/ios-tests.xcresult
         run: |
           set -o pipefail
-          destination=$(python3 scripts/simulator_destination.py)
-          xcodebuild -version
-          echo "Simulator destination: $destination"
-          xcodebuild -project apps/ios/C67.xcodeproj -scheme C67 \
-            -destination "$destination" -derivedDataPath /tmp/c67-ci \
-            -resultBundlePath "$RUNNER_TEMP/ios-tests.xcresult" \
-            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- C67_DATA_MODE=mock test \
-            | tee "$RUNNER_TEMP/ios-tests.log"
+          bash scripts/verify_ios.sh ios-full 2>&1 | tee "$RUNNER_TEMP/ios-tests.log"
       - name: Preserve failed Simulator test evidence
         if: failure()
         uses: actions/upload-artifact@v4

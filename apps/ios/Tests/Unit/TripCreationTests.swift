@@ -65,10 +65,10 @@ import C67Domain
     }
 
     private func make(specific: Bool = true, repository: any PlanningRepository = MockPlanningRepository(),
-                      searcher: (any TripPlaceSearching)? = nil) throws -> TripCreationPresenter {
+                      searcher: (any TripPlaceSearching)? = nil, clock: @escaping () -> Date = { .now }) throws -> TripCreationPresenter {
         let planning = PlanningPresenter(interactor: .init(repository: repository), initialInput: try MockPlanningRepository.sampleInput())
         return TripCreationPresenter(planning: planning, mode: "Mock • memory only", specificPlace: specific,
-                                     interactor: .init(searcher: searcher ?? SyntheticTripPlaceSearch()))
+                                     interactor: .init(searcher: searcher ?? SyntheticTripPlaceSearch()), clock: clock)
     }
 
     @Test func recommendationDistanceUsesDevicePointAndRejectsInvalidCoordinates() throws {
@@ -1281,9 +1281,10 @@ extension TripCreationTests {
     }
 
     @Test func directProcessingBuildsV52ScheduleWithoutAvailabilityFormOrAI() async throws {
-        let repository = try PocketIntegrationFixture.repository()
-        let model = try make(repository: repository)
         let fixtureInput = PocketIntegrationFixture.input()
+        let now = fixtureInput.startsAt.addingTimeInterval(-3600)
+        let repository = try PocketIntegrationFixture.repository(jobClock: { now })
+        let model = try make(repository: repository, clock: { now })
         model.planning.startsAt = fixtureInput.startsAt
         model.planning.finishBy = fixtureInput.finishBy
         model.selected = [.init(place: .init(id: UUID(), name: "Unverified trip selection",

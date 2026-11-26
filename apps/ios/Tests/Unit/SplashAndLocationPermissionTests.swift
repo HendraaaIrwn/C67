@@ -67,7 +67,7 @@ struct SplashAndLocationPermissionTests {
     }
 
     @Test("The app bundles a silent four-second launch movie")
-    func launchMovieIsBundled() async throws {
+    nonisolated func launchMovieIsBundled() async throws {
         let url = try #require(Bundle.main.url(forResource: "TravelantsSplash", withExtension: "mp4"))
         let asset = AVURLAsset(url: url)
         let duration = try await asset.load(.duration)

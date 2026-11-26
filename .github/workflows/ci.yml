@@ -43,10 +43,10 @@ jobs:
           npm test --prefix server/planning
   ios-smoke:
     needs: integration
-    runs-on: macos-15-intel
+    runs-on: xcode-27
     timeout-minutes: 20
     env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
       - name: Swift format and shared package tests
@@ -56,8 +56,9 @@ jobs:
       - name: App unit tests and two critical UI flows
         shell: bash
         env:
-          C67_VERIFY_XCODE_VERSION: '16.4'
-          C67_VERIFY_IOS_VERSION: '18'
+          C67_VERIFY_XCODE_VERSION: '27.2'
+          C67_VERIFY_IOS_VERSION: '27.2'
+          C67_VERIFY_IPHONE_MODEL: iPhone 18 Pro
           C67_VERIFY_DERIVED_DATA: ${{ runner.temp }}/c67-smoke
           C67_VERIFY_RESULT_BUNDLE: ${{ runner.temp }}/ios-smoke.xcresult
         run: |
