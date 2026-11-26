@@ -11,7 +11,7 @@ Use feature PRs to `dev` with local checks and review. Run a compact cloud integ
 ## Implementation and acceptance
 
 - `integration`: validates promotion identity, contracts and fixtures, then runs planning type/format checks and synthetic/disposable PostgreSQL tests on Linux.
-- `ios-smoke`: pinned Xcode 16.4 on standard Intel macOS, Swift formatting, shared package tests, app unit tests and two existing mock Home/planning/save UI cases on an available iOS 18.x iPhone Simulator. Promotion CI and local verification use `scripts/verify_ios.sh` for the same app test invocation. Failure logs/result bundles are retained for three days.
+- `ios-smoke`: pinned Xcode 27.2 on the `xcode-27` Apple Silicon runner, Swift formatting, shared package tests, app unit tests and two existing mock Home/planning/save UI cases on an iPhone 18 Pro with iOS 27.2. Promotion CI and local verification use `scripts/verify_ios.sh` for the same app test invocation. Failure logs/result bundles are retained for three days.
 - Full verification and PoC workflows are manual. No automatic push workflow remains.
 - `scripts/verify_local.sh` records local revision, working-tree state, toolchain and logs; smoke/full iOS modes retain result bundles. It never deploys or resets a database.
 - Promotion-policy tests cover accepted dev/main requests and rejection of feature branches, forks named dev, wrong target/repository, missing identity and non-PR events.

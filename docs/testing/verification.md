@@ -789,3 +789,9 @@ Promotion and local smoke verification share one app command, and the promotion 
 The next promotion run progressed past the app's date-binding crash. It stopped while compiling the Splash unit test because the iOS 18.5 SDK returns non-Sendable AVAssetTrack values. The media-only test now runs outside the main actor and still checks the original duration and track counts. This patch has no older-SDK app test result yet. See the [promotion job](https://github.com/HendraaaIrwn/C67/actions/runs/45852713992/job/140023349158).
 
 The same late-evening local smoke run exposed a second wall-clock-dependent fixture in the app tests. The direct scheduling scenario now shares a synthetic daytime clock between the presenter and repository. With both app-test fixes applied, Xcode 27.2 passed the 140 app tests, the two UI smoke flows, and an x86_64 build-for-testing. The current host cannot run the pinned Xcode 16.4 and iOS 18.x combination.
+
+### Fork promotion on Xcode 27.2
+
+The fork now selects GitHub's Apple Silicon `xcode-27` runner and pins Xcode 27.2 (`27B52`). Promotion smoke tests select an iPhone 18 Pro with the iOS 27.2 Simulator runtime. The minimum deployment target remains iOS 18. This smoke check exercises the iOS 27.2 runtime.
+
+The matching local preflight passed 217 shared Swift tests, 140 app Swift Testing cases, 18 app XCTest cases, and both UI smoke flows in mock mode. Two opt-in live authentication tests were skipped. Contract, planning, formatting and Simulator selection checks also passed. The separate manual Journey PoC build could not fetch its existing ONNX Runtime Swift package because the upstream repository returned HTTP 404. The PoC is outside the fork promotion checks.

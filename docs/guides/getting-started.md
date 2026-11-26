@@ -108,8 +108,8 @@ Run `bash scripts/verify_ios.sh ios-smoke` to use the same app unit tests and tw
 To check the promotion toolchain and runtime before running tests on a compatible Mac, use:
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer \
-  C67_VERIFY_XCODE_VERSION=16.4 C67_VERIFY_IOS_VERSION=18 \
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  C67_VERIFY_XCODE_VERSION=27.2 C67_VERIFY_IOS_VERSION=27.2 C67_VERIFY_IPHONE_MODEL="iPhone 18 Pro" \
   bash scripts/verify_ios.sh check
 ```
 

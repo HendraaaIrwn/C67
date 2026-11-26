@@ -9,7 +9,8 @@ class SimulatorDestinationTests(unittest.TestCase):
             {"name": "Apple TV", "isAvailable": True, "udid": "tv"},
         ],
         "com.apple.CoreSimulator.SimRuntime.iOS-27-2": [
-            {"name": "iPhone 18 Pro", "isAvailable": True, "udid": "new"},
+            {"name": "iPhone 17", "isAvailable": True, "udid": "new"},
+            {"name": "iPhone 18 Pro", "isAvailable": True, "udid": "pro"},
         ],
         "com.apple.CoreSimulator.SimRuntime.iOS-18-6": [
             {"name": "iPhone 16", "isAvailable": False, "udid": "unavailable"},
@@ -28,3 +29,7 @@ class SimulatorDestinationTests(unittest.TestCase):
 
     def test_missing_requested_runtime_does_not_fall_back(self):
         self.assertIsNone(ios_destination(self.devices, "18.5"))
+
+    def test_requested_model_uses_the_exact_name_and_runtime(self):
+        self.assertEqual(ios_destination(self.devices, "27.2", "iPhone 18 Pro"), "platform=iOS Simulator,id=pro")
+        self.assertIsNone(ios_destination(self.devices, "18", "iPhone 18 Pro"))

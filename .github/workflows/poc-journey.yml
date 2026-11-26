@@ -22,7 +22,9 @@ jobs:
         run: python3 -m unittest discover -s research/poc-journey/scripts -p 'test_*.py'
       - run: bash research/poc-journey/scripts/verify.sh cli
   native-fixtures:
-    runs-on: macos-26
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
       - name: Record compatible toolchain
@@ -40,7 +42,7 @@ jobs:
         run: bash research/poc-journey/scripts/verify.sh build
       - name: Journey model and geometry regressions
         run: |
-          export P3_SIMULATOR_DESTINATION="$(python3 scripts/simulator_destination.py)"
+          export P3_SIMULATOR_DESTINATION="$(python3 scripts/simulator_destination.py --ios-version 27.2 --iphone-model "iPhone 18 Pro")"
           bash research/poc-journey/scripts/verify.sh journey-models
       - name: Swift package fixture suites
         run: bash research/poc-journey/scripts/verify.sh packages
@@ -59,7 +61,9 @@ jobs:
           retention-days: 14
           include-hidden-files: true
   context-fixtures:
-    runs-on: macos-26
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
       - name: Restore and verify pinned model assets
