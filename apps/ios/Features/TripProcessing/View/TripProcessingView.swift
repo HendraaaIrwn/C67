@@ -115,21 +115,23 @@ private struct TripPlanningWaitLayout: View {
     let message: Text
     let raining: Bool
 
-    private static let artboardHeight = 874.0
+    private static let artboardHeight: CGFloat = 874
 
     var body: some View {
         GeometryReader { proxy in
             let fullHeight = proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
             let scale = min(1, fullHeight / Self.artboardHeight)
-            let sceneWidth = proxy.size.width * 386.75 / 402
+            let sceneWidth: CGFloat = proxy.size.width * 386.75 / 402
+            let sceneHeight: CGFloat = sceneWidth * 185 / 364
+            let titleTopInset: CGFloat = max(16, (424 - 91) * scale - sceneHeight)
             let title: Text = Text("Hang on tight!").font(.system(size: 34, weight: .bold))
             VStack(alignment: .leading, spacing: 0) {
                 // The scene bleeds past the margins without widening the centred text column.
                 Color.clear
-                    .frame(height: sceneWidth * 185 / 364)
+                    .frame(height: sceneHeight)
                     .overlay(alignment: .leading) {
                         TripPlanningDriveIllustration(raining: raining)
-                            .frame(width: sceneWidth, height: sceneWidth * 185 / 364)
+                            .frame(width: sceneWidth, height: sceneHeight)
                             .offset(x: -3 - 20)
                     }
                     .padding(.top, 91 * scale - proxy.safeAreaInsets.top)
@@ -137,7 +139,7 @@ private struct TripPlanningWaitLayout: View {
                     .frame(maxWidth: .infinity)
                     .foregroundStyle(AppColor.primaryText)
                     .accessibilityAddTraits(.isHeader)
-                    .padding(.top, max(16, (424 - 91) * scale - sceneWidth * 185 / 364))
+                    .padding(.top, titleTopInset)
                 message
                     .contentTransition(.opacity)
                     .font(.system(size: 28))
