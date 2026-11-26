@@ -1,0 +1,459 @@
+import Foundation
+
+public enum PlanningMode: String, Equatable, Codable, Sendable, CaseIterable {
+    case walking
+    case automobile
+    case unknown
+}
+
+public enum PlanningPurpose: String, Equatable, Codable, Sendable, CaseIterable {
+    case plan
+    case firstItinerary
+    case suggest
+    case replan
+    case unknown
+}
+
+public enum PlanningJobStatus: String, Equatable, Codable, Sendable, CaseIterable {
+    case queued
+    case running
+    case succeeded
+    case failed
+    case unknown
+}
+
+public enum PersonalTripStatus: String, Equatable, Codable, Sendable, CaseIterable {
+    case planned
+    case active
+    case completed
+    case unknown
+}
+
+public enum PlanningEventKind: String, Equatable, Codable, Sendable, CaseIterable {
+    case start
+    case arrive
+    case completeStop = "complete_stop"
+    case extendStay = "extend_stay"
+    case arriveAtEndpoint = "arrive_at_endpoint"
+}
+
+public struct PlanningPoint: Equatable, Codable, Sendable {
+    public var latitude: Double
+    public var longitude: Double
+    public init(latitude: Double, longitude: Double) {
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+}
+
+public enum PlanningVisitExposure: String, Codable, Sendable {
+    case unknown, indoor, outdoor, sheltered, directSun
+}
+
+public struct PlanningPlace: Equatable, Codable, Sendable, Identifiable {
+    public var id: UUID
+    public var name: String
+    public var location: PlanningPoint
+    public var visitSeconds: Int
+    public var website: URL?
+    public var address: String? = nil
+    public var phoneNumber: String? = nil
+    public var preferredAfter: Date?
+    public var preferredBefore: Date?
+    public var sourceID: String? = nil
+    public var categories: [String] = []
+    public var visitConfirmation: PlanningVisitConfirmation? = nil
+    public var availabilityVerified = false
+    public var visitTiming: PlanningVisitTiming? = nil
+    public var durationOverridden: Bool? = nil
+    public var visitActivity: PlanningVisitActivity? = nil
+    public var coffeeVisitIntent: CoffeeVisitStyle? = nil
+    public var minimumAcceptedVisitSeconds: Int? = nil
+    public var activitySession: PlanningActivitySession? = nil
+    public var visitExposure: PlanningVisitExposure?
+    public init(id: UUID, name: String, location: PlanningPoint, visitSeconds: Int, website: URL? = nil, preferredAfter: Date? = nil, preferredBefore: Date? = nil) {
+        self.id = id
+        self.name = name
+        self.location = location
+        self.visitSeconds = visitSeconds
+        self.website = website
+        self.preferredAfter = preferredAfter
+        self.preferredBefore = preferredBefore
+    }
+}
+
+public struct PlanningInput: Equatable, Codable, Sendable {
+    public var title: String
+    public var origin: PlanningPoint {
+        didSet { if origin != oldValue { originName = nil } }
+    }
+    public var originName: String? = nil
+    public var places: [PlanningPlace]
+    public var preferences: String
+    public var startsAt: Date
+    public var finishBy: Date
+    public var timeZone: String
+    public var mode: PlanningMode
+    public var firstPlaceID: UUID?
+    public var preservesPlaceOrder: Bool
+    public var enginePreferences: PlanningPreferences? = nil
+    public init(title: String, origin: PlanningPoint, places: [PlanningPlace], preferences: String, startsAt: Date, finishBy: Date, timeZone: String, mode: PlanningMode, firstPlaceID: UUID? = nil, preservesPlaceOrder: Bool = false) {
+        self.title = title
+        self.origin = origin
+        self.places = places
+        self.preferences = preferences
+        self.startsAt = startsAt
+        self.finishBy = finishBy
+        self.timeZone = timeZone
+        self.mode = mode
+        self.firstPlaceID = firstPlaceID
+        self.preservesPlaceOrder = preservesPlaceOrder
+    }
+}
+
+public struct PlanningEvidence: Equatable, Codable, Sendable, Identifiable {
+    public var id: String
+    public var label: String
+    public var url: URL?
+    public var attributionLogoURL: URL?
+    public var checkedAt: Date
+    public var kind: String
+    public var summary: String
+    public var synthetic: Bool
+    public init(id: String, label: String, url: URL? = nil, checkedAt: Date, kind: String, summary: String, synthetic: Bool, attributionLogoURL: URL? = nil) {
+        self.id = id
+        self.label = label
+        self.url = url
+        self.attributionLogoURL = attributionLogoURL
+        self.checkedAt = checkedAt
+        self.kind = kind
+        self.summary = summary
+        self.synthetic = synthetic
+    }
+}
+
+public struct ScheduledPlanningStop: Equatable, Codable, Sendable, Identifiable {
+    public var id: UUID
+    public var name: String
+    public var location: PlanningPoint
+    public var arrivalAt: Date?
+    public var departureAt: Date?
+    public var visitSeconds: Int
+    public var travelSeconds: Int
+    public var roadDistanceMeters: Double? = nil
+    public var warnings: [String]
+    public var visitDurationAdvice: VisitDurationAdvice? = nil
+    public var visitStartsAt: Date? = nil
+    public init(id: UUID, name: String, location: PlanningPoint, arrivalAt: Date?, departureAt: Date?, visitSeconds: Int, travelSeconds: Int, warnings: [String]) {
+        self.id = id
+        self.name = name
+        self.location = location
+        self.arrivalAt = arrivalAt
+        self.departureAt = departureAt
+        self.visitSeconds = visitSeconds
+        self.travelSeconds = travelSeconds
+        self.warnings = warnings
+    }
+}
+
+public struct PlanProposal: Equatable, Codable, Sendable, Identifiable {
+    public var id: UUID
+    public var input: PlanningInput
+    public var stops: [ScheduledPlanningStop]
+    public var finishesAt: Date?
+    public var feasible: Bool
+    public var explanation: String
+    public var warnings: [String]
+    public var evidence: [PlanningEvidence]
+    public var synthetic: Bool
+    public var departureAt: Date? = nil
+    public var returnTravelSeconds: Int? = nil
+    public var firstItinerary: Bool? = nil
+    public var unscheduledPlaces: [String]? = nil
+    public var experiencePlan: PlanningExperiencePlan? = nil
+    public var experienceRouteCheckedAt: Date? = nil
+    public var rescheduledFromDate: Date? = nil
+    public var scheduleAssessment: PlanningScheduleAssessment? = nil
+    public var scheduleDecision: PlanningScheduleDecision?
+    public init(id: UUID, input: PlanningInput, stops: [ScheduledPlanningStop], finishesAt: Date?, feasible: Bool, explanation: String, warnings: [String], evidence: [PlanningEvidence], synthetic: Bool) {
+        self.id = id
+        self.input = input
+        self.stops = stops
+        self.finishesAt = finishesAt
+        self.feasible = feasible
+        self.explanation = explanation
+        self.warnings = warnings
+        self.evidence = evidence
+        self.synthetic = synthetic
+    }
+}
+
+public struct PlanningResult: Equatable, Codable, Sendable {
+    public var proposal: PlanProposal?
+    public var candidates: [PlanningPlace]
+    public var warnings: [String]
+    public var synthetic: Bool
+    public init(proposal: PlanProposal? = nil, candidates: [PlanningPlace], warnings: [String], synthetic: Bool) {
+        self.proposal = proposal
+        self.candidates = candidates
+        self.warnings = warnings
+        self.synthetic = synthetic
+    }
+}
+
+public struct PlanningRequest: Equatable, Codable, Sendable {
+    public var requestID: UUID
+    public var purpose: PlanningPurpose
+    public var input: PlanningInput
+    public var tripID: UUID?
+    public var baseRevision: Int?
+    public var replacementDeparture: Date? = nil
+    public var durationAlternativeJobID: UUID? = nil
+    public var currentOrigin: PlanningPoint?
+    public init(requestID: UUID, purpose: PlanningPurpose, input: PlanningInput, tripID: UUID? = nil, baseRevision: Int? = nil, currentOrigin: PlanningPoint? = nil) {
+        self.requestID = requestID
+        self.purpose = purpose
+        self.input = input
+        self.tripID = tripID
+        self.baseRevision = baseRevision
+        self.currentOrigin = currentOrigin
+    }
+}
+
+public enum PlanningActivity: String, Codable, Sendable {
+    case weather, luna, openingHours, travelTimes, onDeviceAdvice
+}
+
+public struct PlanningJob: Equatable, Codable, Sendable, Identifiable {
+    public var id: UUID
+    public var status: PlanningJobStatus
+    public var purpose: PlanningPurpose
+    public var originalInput: PlanningInput?
+    public var command: PlanningRequest? = nil
+    public var input: PlanningInput
+    public var tripID: UUID?
+    public var baseRevision: Int?
+    public var result: PlanningResult?
+    public var errorCode: String?
+    public var createdAt: Date
+    public var scheduleAssessment: PlanningScheduleAssessment? = nil
+    public var semanticSnapshot: PlanningSemanticSnapshot? = nil
+    public var semanticSnapshots: [PlanningSemanticSnapshot]? = nil
+    public var activity: PlanningActivity? = nil
+    public init(id: UUID, status: PlanningJobStatus, purpose: PlanningPurpose, input: PlanningInput, tripID: UUID? = nil, baseRevision: Int? = nil, result: PlanningResult? = nil, errorCode: String? = nil, createdAt: Date) {
+        self.id = id
+        self.status = status
+        self.purpose = purpose
+        self.input = input
+        self.tripID = tripID
+        self.baseRevision = baseRevision
+        self.result = result
+        self.errorCode = errorCode
+        self.createdAt = createdAt
+    }
+}
+
+public struct PersonalPlanningTrip: Equatable, Codable, Sendable, Identifiable {
+    public var id: UUID
+    public var title: String
+    public var revision: Int
+    public var status: PersonalTripStatus
+    public var input: PlanningInput
+    public var plan: PlanProposal
+    public var completedStopIDs: [UUID]
+    public var currentStopID: UUID?
+    public var currentArrivedAt: Date?
+    public var visitedAtByStopID: [UUID: Date]?
+    public var synthetic: Bool
+    public var createdAt: Date
+    public init(id: UUID, title: String, revision: Int, status: PersonalTripStatus, input: PlanningInput, plan: PlanProposal, completedStopIDs: [UUID], currentStopID: UUID? = nil, currentArrivedAt: Date? = nil, visitedAtByStopID: [UUID: Date]? = nil, synthetic: Bool, createdAt: Date) {
+        self.id = id
+        self.title = title
+        self.revision = revision
+        self.status = status
+        self.input = input
+        self.plan = plan
+        self.completedStopIDs = completedStopIDs
+        self.currentStopID = currentStopID
+        self.currentArrivedAt = currentArrivedAt
+        self.visitedAtByStopID = visitedAtByStopID
+        self.synthetic = synthetic
+        self.createdAt = createdAt
+    }
+}
+
+public struct PlanningStartPreparation: Sendable {
+    public let id: UUID
+    public let proposal: PlanProposal
+    public let requiresConfirmation: Bool
+
+    public init(id: UUID, proposal: PlanProposal, requiresConfirmation: Bool) {
+        self.id = id
+        self.proposal = proposal
+        self.requiresConfirmation = requiresConfirmation
+    }
+}
+
+extension PlanProposal {
+    package func requiresStartConfirmation(comparedTo saved: PlanProposal) -> Bool {
+        let tolerance = 5 * 60
+        func isClose(_ before: Date?, _ after: Date?) -> Bool {
+            guard let before, let after else { return before == after }
+            return abs(after.timeIntervalSince(before)) <= Double(tolerance)
+        }
+        func isClose(_ before: Int?, _ after: Int?) -> Bool {
+            guard let before, let after else { return before == after }
+            return abs(Double(after) - Double(before)) <= Double(tolerance)
+        }
+
+        let oldDeparture = saved.departureAt ?? saved.input.startsAt
+        let newDeparture = departureAt ?? input.startsAt
+        guard feasible, input.timeZone == saved.input.timeZone,
+              PlanningDayWindow.isSameDay(oldDeparture, newDeparture, timeZone: input.timeZone),
+              input.origin == saved.input.origin, input.mode == saved.input.mode,
+              input.planningEndpoint == saved.input.planningEndpoint,
+              stops.map(\.id) == saved.stops.map(\.id), isClose(oldDeparture, newDeparture),
+              isClose(saved.finishesAt, finishesAt), isClose(saved.returnTravelSeconds, returnTravelSeconds) else { return true }
+
+        for (old, new) in zip(saved.stops, stops) {
+            guard old.location == new.location, old.visitSeconds == new.visitSeconds,
+                  isClose(old.travelSeconds, new.travelSeconds), isClose(old.arrivalAt, new.arrivalAt),
+                  isClose(old.visitStartsAt ?? old.arrivalAt, new.visitStartsAt ?? new.arrivalAt),
+                  isClose(old.departureAt, new.departureAt) else { return true }
+        }
+
+        let previousCheckIns = saved.scheduleDecision?.checkIns ?? []
+        let checkIns = scheduleDecision?.checkIns ?? []
+        guard previousCheckIns.count == checkIns.count else { return true }
+        return checkIns.contains { current in
+            guard let previous = previousCheckIns.first(where: { $0.id == current.id }), previous.target == current.target else { return true }
+            return current.shortfall > previous.shortfall
+        }
+    }
+}
+
+public struct PlanningEvent: Equatable, Codable, Sendable {
+    public var requestID: UUID
+    public var expectedRevision: Int
+    public var kind: PlanningEventKind
+    public var stopID: UUID?
+    public var preparationID: UUID? = nil
+    public var extraSeconds: Int?
+    public init(requestID: UUID, expectedRevision: Int, kind: PlanningEventKind, stopID: UUID? = nil, extraSeconds: Int? = nil) {
+        self.requestID = requestID
+        self.expectedRevision = expectedRevision
+        self.kind = kind
+        self.stopID = stopID
+        self.extraSeconds = extraSeconds
+    }
+}
+
+public extension PlanningInput {
+    var planningEndpoint: PlanningPoint? {
+        enginePreferences?.endPoint ?? (enginePreferences?.returnToOrigin == true ? origin : nil)
+    }
+
+    func validate(purpose: PlanningPurpose = .plan) throws {
+        let validCount = purpose == .firstItinerary || enginePreferences?.reasonableOrdering == true ? !places.isEmpty
+            : ((purpose == .suggest && enginePreferences != nil ? 0 : 1) ... 6).contains(places.count)
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.count <= 120,
+              preferences.count <= 2000, validCount, Set(places.map(\.id)).count == places.count,
+              finishBy > startsAt, finishBy.timeIntervalSince(startsAt) <= 86400,
+              TimeZone(identifier: timeZone) != nil, mode != .unknown,
+              origin.latitude.isFinite, origin.longitude.isFinite,
+              abs(origin.latitude) <= 90, abs(origin.longitude) <= 180 else { throw PlanningError.invalidInput }
+        if enginePreferences != nil, purpose != .suggest {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: timeZone)!
+            guard calendar.isDate(startsAt, inSameDayAs: finishBy) else { throw PlanningError.invalidInput }
+        }
+        for place in places {
+            guard !place.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, place.name.count <= 200, (0 ... 86400).contains(place.visitSeconds),
+                  place.location.latitude.isFinite, place.location.longitude.isFinite,
+                  abs(place.location.latitude) <= 90, abs(place.location.longitude) <= 180 else { throw PlanningError.invalidInput }
+            if let website = place.website, website.absoluteString.count > 2048 { throw PlanningError.invalidInput }
+            if let after = place.preferredAfter, let before = place.preferredBefore, after > before { throw PlanningError.invalidInput }
+            if let minimum = place.minimumAcceptedVisitSeconds, minimum <= 0 || minimum > place.visitSeconds { throw PlanningError.invalidInput }
+            if let session = place.activitySession {
+                guard session.startsAt < session.endsAt, session.endsAt.timeIntervalSince(session.startsAt) <= 86400,
+                      session.arriveBy == nil || session.arriveBy! <= session.startsAt else { throw PlanningError.invalidInput }
+            }
+            if let confirmation = place.visitConfirmation {
+                guard confirmation.opensAt < confirmation.closesAt,
+                      confirmation.lastEntryAt == nil || (confirmation.lastEntryAt! >= confirmation.opensAt && confirmation.lastEntryAt! <= confirmation.closesAt) else { throw PlanningError.invalidInput }
+            }
+        }
+        if let firstPlaceID, !places.contains(where: { $0.id == firstPlaceID }) { throw PlanningError.invalidInput }
+        if preservesPlaceOrder, let firstPlaceID, places.first?.id != firstPlaceID { throw PlanningError.invalidInput }
+    }
+}
+
+public extension PersonalPlanningTrip {
+    var pendingEndpoint: PlanningPoint? {
+        guard status == .active, nextStop == nil else { return nil }
+        return plan.input.planningEndpoint
+    }
+
+    var nextStop: ScheduledPlanningStop? { plan.stops.first { !completedStopIDs.contains($0.id) } }
+}
+
+public enum PlanningError: Error, Equatable, LocalizedError, Sendable {
+    case invalidInput, configurationRequired, authenticationRequired, invalidResponse, notFound
+    case revisionConflict, requestConflict, unavailable, timedOut, rateLimited, expired, failed(String)
+    public var errorDescription: String? {
+        switch self {
+        case .invalidInput: "Check your selected places, visit details and trip settings."
+        case .configurationRequired: "Live planning is not configured. Set the planning API URL and configure the backend providers."
+        case .authenticationRequired: "Sign in to plan and save a personal trip."
+        case .invalidResponse: "The planner returned an unexpected result. Your current plan is unchanged."
+        case .notFound: "This planning result is no longer available."
+        case .revisionConflict: "Your trip changed. Refresh it and request a new proposal."
+        case .requestConflict: "This request no longer matches its original input. Start a new request."
+        case .unavailable: "Planning is unavailable. Your saved trip is unchanged. Try again."
+        case .timedOut: "The planner took longer than expected."
+        case .rateLimited: "The planning limit was reached. Wait before trying again."
+        case .expired: "This proposal expired. Request a fresh plan."
+        case .failed("AI_CONSENT_REQUIRED"): "Choose whether to use AI assistance or enter visit durations yourself."
+        case .failed(let code):
+            switch code {
+            case "START_DATE_MISMATCH": "Choose a new trip date and review its schedule before starting."
+            case "START_VERIFICATION_TIMEOUT": "Checking travel times took too long. Try again to continue checking your trip."
+            case "PLANNING_CANCELLED": "Planning was cancelled. Your draft is available."
+            case "ORDER_REQUEST_CONFLICT": "The request does not match its original input. Try again with a new request."
+            case "PLANNING_ALREADY_RUNNING": "Another itinerary is still being prepared. Check its status before starting another."
+            case "POCKET_CONNECTION_REQUIRED": "Sign in or check your Pocket connection in Account. Your selected places are kept."
+            case "POCKET_CONNECTION_REJECTED": "The Pocket server rejected the connection. Check your account and connection, then try again."
+            case "POCKET_ORDER_ENDPOINT_MISSING": "This Pocket server does not support itinerary recommendations. Check the server URL in Account."
+            case "POCKET_ORDER_METHOD_UNSUPPORTED": "This Pocket server does not support the selected itinerary method. Contact support or connect to an updated server."
+            case "ORDER_REQUEST_REJECTED": "The Pocket server rejected the trip details. Your selected places are kept."
+            case "ORDER_JOB_MISSING": "The Pocket server could not find this request. Try again to start a new recommendation."
+            case "ORDER_SERVER_INTERRUPTED": "The Pocket server stopped processing this request. Try again to start a new recommendation."
+            case "ORDER_CONNECTION_INTERRUPTED": "The app lost contact with the Pocket server. Check the same request when the connection is back."
+            case "ORDER_RESPONSE_INVALID": "The app could not verify the recommendation. Your selected places are kept."
+            case "FOUNDATION_MODELS_UNAVAILABLE": "Apple’s on-device model is unavailable. Check Apple Intelligence in Settings or add your own visit durations in Adjust schedule."
+            case "FOUNDATION_MODELS_GENERATION_FAILED": "Apple’s on-device model could not provide visit suggestions. Adjust the schedule to enter your durations, or try again."
+            case "V4_UNSUPPORTED_INPUT": "Hybrid v4 needs a known duration for each place and supports up to six places. Choose another method or update the trip."
+            case "V4_DURATION_UNKNOWN": "A visit duration is unavailable. Open Adjust schedule and set a duration for each place, then try again."
+            case "V4_WINDOW_TOO_SHORT": "The visits and travel cannot fit within the selected time window. Adjust your schedule."
+            case "V4_TODAY_TOO_SHORT": "There isn’t enough time for the trip today. Try tomorrow or adjust the schedule."
+            case "V4_TOMORROW_TOO_SHORT": "There isn’t enough time for these visits today or tomorrow. Adjust your schedule."
+            case "V4_TOMORROW_UNVERIFIED": "Today’s window was too short, and a complete schedule for tomorrow couldn’t be verified. Adjust your schedule or try again."
+            case "V4_ROUTE_THROTTLED": "Apple Maps is temporarily limiting route estimates. Wait a moment and try again."
+            case "V4_NO_SCHEDULE": "Hybrid v4 could not verify a complete schedule with the available route estimates and constraints. Try a wider time window or another method."
+            case "V51_SCHEDULE_CONFLICT": "The itinerary cannot meet the selected schedule constraints. Review the details and try again."
+            case "V41_NO_SCHEDULE": "Travelant could not verify a complete schedule with the available estimates. Review the details or try again."
+            case "V52_ETA_UNAVAILABLE": "Apple Maps couldn’t provide travel times for part of the route. Try checking the itinerary again."
+            case "V41_ACCESS_CONFLICT": "A visit conflicts with the available opening hours or its session. Review visit availability."
+            case "V41_DATE_CONFLICT": "The selected date conflicts with a dated visit. Review the trip date and visit confirmation."
+            case "V41_BUDGET_REACHED": "Travelants reached the route-checking limit before verifying a complete schedule. Your selected places are kept."
+            case "ORDER_GENERATION_FAILED": "The Pocket server could not complete the recommendation. Your selected places are kept. Try again."
+            case "PROVIDER_CONFIGURATION_REQUIRED": "Live AI or Apple data is not configured on the planning server."
+            case "ROUTE_UNAVAILABLE": "A route estimate is unavailable. No travel time was invented."
+            case "MODEL_CONTEXT_LIMIT": "This request contains too much context. Try fewer places."
+            case "PROVIDER_RATE_LIMITED": "A data provider is busy. Try again later."
+            case "JOB_EXPIRED": "Planning took too long. Request a fresh proposal."
+            default: "A planning provider could not complete this request. Your current plan is unchanged."
+            }
+        }
+    }
+}

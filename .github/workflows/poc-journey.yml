@@ -1,9 +1,5 @@
 name: PoC journey checks
 on:
-  pull_request:
-    paths:
-      - 'poc-journey/**'
-      - '.github/workflows/poc-journey.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,14 +15,16 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: poc-journey/apps/ai-trip-planner/package-lock.json
-      - run: python3 poc-journey/scripts/verify_portability.py
-      - run: python3 poc-journey/scripts/verify_evidence.py
+          cache-dependency-path: research/poc-journey/apps/ai-trip-planner/package-lock.json
+      - run: python3 research/poc-journey/scripts/verify_portability.py
+      - run: python3 research/poc-journey/scripts/verify_evidence.py
       - name: Python evidence and TJ importer tests
-        run: python3 -m unittest discover -s poc-journey/scripts -p 'test_*.py'
-      - run: bash poc-journey/scripts/verify.sh cli
+        run: python3 -m unittest discover -s research/poc-journey/scripts -p 'test_*.py'
+      - run: bash research/poc-journey/scripts/verify.sh cli
   native-fixtures:
-    runs-on: macos-26
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
       - name: Record compatible toolchain
@@ -36,39 +34,41 @@ jobs:
           sw_vers
       - uses: actions/cache@v4
         with:
-          path: poc-journey/apps/c67-foundation-lab/Packages/PreferenceLearning/Sources/PreferenceLearning/Resources/Model
+          path: research/poc-journey/apps/c67-foundation-lab/Packages/PreferenceLearning/Sources/PreferenceLearning/Resources/Model
           key: e5-614241f622f53c4eeff9890bdc4f31cfecc418b3-dd476dd0
       - name: Restore and verify pinned model assets
-        run: python3 poc-journey/scripts/bootstrap.py
+        run: python3 research/poc-journey/scripts/bootstrap.py
       - name: Unsigned Simulator builds
-        run: bash poc-journey/scripts/verify.sh build
+        run: bash research/poc-journey/scripts/verify.sh build
       - name: Journey model and geometry regressions
         run: |
-          export P3_SIMULATOR_DESTINATION="$(python3 scripts/simulator_destination.py)"
-          bash poc-journey/scripts/verify.sh journey-models
+          export P3_SIMULATOR_DESTINATION="$(python3 scripts/simulator_destination.py --ios-version 27.2 --iphone-model "iPhone 18 Pro")"
+          bash research/poc-journey/scripts/verify.sh journey-models
       - name: Swift package fixture suites
-        run: bash poc-journey/scripts/verify.sh packages
+        run: bash research/poc-journey/scripts/verify.sh packages
       - name: Offline TJ capability evaluator
-        run: bash poc-journey/scripts/verify.sh transjakarta
+        run: bash research/poc-journey/scripts/verify.sh transjakarta
       - name: Native local and Jakarta replay harnesses
-        run: bash poc-journey/scripts/verify.sh native
+        run: bash research/poc-journey/scripts/verify.sh native
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: poc-deterministic-results
           path: |
-            poc-journey/.verification/**/*.log
-            poc-journey/.verification/**/summary.json
-            poc-journey/.verification/**/REPORT.md
+            research/poc-journey/.verification/**/*.log
+            research/poc-journey/.verification/**/summary.json
+            research/poc-journey/.verification/**/REPORT.md
           retention-days: 14
           include-hidden-files: true
   context-fixtures:
-    runs-on: macos-26
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
       - name: Restore and verify pinned model assets
-        run: python3 poc-journey/scripts/bootstrap.py
+        run: python3 research/poc-journey/scripts/bootstrap.py
       - name: Context Lab fixture tests
-        run: bash poc-journey/scripts/verify.sh context
+        run: bash research/poc-journey/scripts/verify.sh context
       - name: Routing benchmark synthetic campaign and audit
-        run: bash poc-journey/scripts/verify.sh routing
+        run: bash research/poc-journey/scripts/verify.sh routing

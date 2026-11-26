@@ -1,0 +1,797 @@
+# Starter verification
+
+## Shorter visit approval with verified ETAs — 26 November 2026
+
+C67Backend recorded 216 tests with one opt-in benchmark skip. The six-stop Simulator flow passed. On iPhone 17 (iOS 27.2.1), C67 Staging and live MapKit opened Review in 3.27 seconds after one tap on the 45-minute option. The replay used zero scheduling ETA requests after approval and preserved all six stops. The ordinary updated build was installed and launched. [Scope and physical evidence](../tasks/v52-local-visit-durations.md#reuse-the-route-when-approving-a-shorter-visit)
+
+## Local v5.2 visit durations — 26 November 2026
+
+The C67Backend suite recorded 215 tests and one opt-in benchmark skip. Three synthetic Simulator UI tests passed on iPhone 18 Pro (iOS 27.2). Review showed the museum estimate and the café activity estimates. The six-stop itinerary retained all visits after accepting a verified shorter museum activity. The package test withheld the option when the return ETA was unavailable. C67 Staging built in the Staging configuration for Simulator. [Scope and results](../tasks/v52-local-visit-durations.md)
+
+On iPhone 17 (iOS 27.2.1), the ordinary C67 Staging build installed and launched. Isolated native UI tests with live MapKit discovery and ETAs verified Museum Polri and Filosofi Kopi. The six-stop test used a controlled museum access window and required approval for the 45-minute option. Immediate approval triggered MapKit burst throttling twice. After a 55-second pause before approval, the replay reached Review with all six durations and reasons. [Physical evidence](../tasks/v52-local-visit-durations.md#physical-iphone-verification)
+
+## Itinerary availability before route estimates — 26 November 2026
+
+The C67Backend run recorded 211 tests and one opt-in benchmark skip. Synthetic regressions checked that a three-stop trip which cannot fit combined regular opening hours requests route estimates only for tomorrow, that manual dates and locked visit times retain their constraints, and that missing ETA remains an unresolved route check. Two mock UI tests passed on iPhone 18 Pro Simulator (iOS 27.2) for next-day itinerary review and v5.2 review and save. [Scope and results](../tasks/automatic-itinerary-estimated-hours.md#follow-up-check-the-complete-itinerary-before-requesting-routes)
+
+On physical iPhone 17 (iOS 27.2.1), Get Recommendations at a controlled 16:00 WIB for three Kota Tua museums led to a 09:00 WIB departure the following day. The test used a snapshot of published venue hours and live MapKit travel estimates. Review showed all three selected places and the reason for the new date. [Physical test details](../tasks/automatic-itinerary-estimated-hours.md#physical-iphone-verification)
+
+The live-source iPhone follow-up passed with MapKit recommendations and three venue hours records fetched from public websites during the test. The 16:00 WIB request moved to 09:00 WIB the following day, with zero ETA requests for the original date and 24 live MapKit requests for the next date. This test used an isolated public-hours adapter. [Live device evidence](../tasks/automatic-itinerary-estimated-hours.md#physical-iphone-verification-with-live-recommendations-and-published-hours)
+
+## Automatic itinerary opening hours — 25 November 2026
+
+A synthetic 16:00 Jakarta request for three museums reproduced a same-day itinerary outside estimated opening hours. After the fix, the automatic request selected tomorrow within the estimates. A fixed 19:30 departure kept its date, and a request with available regular hours kept a valid same-day itinerary. [Scope and verification](../tasks/automatic-itinerary-estimated-hours.md)
+
+## Luna coffee branch durations — 25 November 2026
+
+Local synthetic Pocket tests verified branch-bound takeaway and seating evidence. SwiftPM verified the coffee-intent gate against tight and roomy itinerary windows. A Staging-mode iPhone 18 Pro Simulator Review showed the branch rationale and source link. The Python suite passed 72 tests and SwiftPM recorded 207 with one opt-in skip. The contract check passed. [Scope and evidence](../tasks/luna-branch-visit-duration.md)
+
+## Resumable Go Trip verification — 25 November 2026
+
+Synthetic Museum Polri and six-stop routes both started after an injected return ETA timeout. They used three and eight ETA requests respectively. Each requested the return twice and other legs once. Further tests covered manual resume, changed departure minutes, throttling, and return deadlines. The package run recorded 203 tests with one opt-in skip. A focused start-flow UI test passed on iPhone 18 Pro Simulator. The signed `C67 Staging` build installed and launched on physical iPhone 17. [Scope and evidence](../tasks/go-trip-resumable-verification.md)
+
+Physical Staging UI follow-up on iPhone 17 / iOS 27.2.1 used live MapKit with one injected return timeout for each route. One Go Trip tap recovered the ETA and reached schedule confirmation in both tests. The trip became active after one confirmation tap. [Physical test setup and results](../tasks/go-trip-resumable-verification.md#physical-staging-ui-with-live-mapkit)
+
+After adding the five-minute timing tolerance, both physical Staging UI scenarios became active from one Go Trip tap with live MapKit and an injected return timeout. Museum Polri activated in 1.53 s and the six-stop itinerary in 2.49 s. A focused iPhone Simulator app test and the package checks verified that material changes still require confirmation. The ordinary updated Staging build installed and launched on the same iPhone. [One-tap verification](../tasks/go-trip-resumable-verification.md#start-directly-after-a-small-timing-adjustment)
+
+Two more physical Staging UI controls passed. The six-stop itinerary shifted six minutes earlier with live MapKit and stayed planned until explicit confirmation. In the Museum Polri control, adding 15 minutes to the live return ETA exceeded the 09:40 WIB deadline and left the trip planned without a start confirmation. [Physical controls](../tasks/go-trip-resumable-verification.md#physical-controls-for-a-material-shift-and-a-conflict)
+
+After adding deadline details, the physical Museum Polri replay showed the return leg, estimated arrival at 09:51 WIB, and the 09:40 WIB deadline. The trip stayed planned. The package suite passed with 205 recorded tests and one opt-in skip. [Deadline notice verification](../tasks/go-trip-resumable-verification.md#explain-the-return-deadline-conflict)
+
+The starting point name now survives saving and reopening an on-device trip. The named Museum Polri Staging replay on the physical iPhone showed Museum Polri → Blok M MRT. A focused Simulator test covered the selected name in the draft, and the package run recorded 206 tests with one opt-in skip. [Named starting point verification](../tasks/go-trip-resumable-verification.md#show-the-selected-starting-point-name)
+
+## Return route navigation layout — 25 November 2026
+
+The generic Simulator build and four focused UI tests passed on iPhone 18 Pro Simulator (iOS 27.2). The tests covered the full-screen return route, shared active-trip controls, Back to summary, and the return action at accessibility XXXL in Dark Mode. [Scope and evidence](../tasks/trip-completion-return-flow.md#follow-up-match-the-active-trip-navigation-layout)
+
+On physical iPhone 17 (iOS 27.2.1), live MapKit displayed the instruction banner and return route using a simulated public position. The final staging build verified the white button label and Back to summary in the on-device design preview. [Physical test evidence](../tasks/trip-completion-return-flow.md#follow-up-match-the-active-trip-navigation-layout)
+
+## Return route inside Travelants — 25 November 2026
+
+The generic Simulator build and three UI tests passed on iPhone 18 Pro Simulator (iOS 27.2). The return action opened the in-app map, and closing it restored the completion summary. The labeled sample route displayed a line and estimate in the design preview. [Scope and evidence](../tasks/trip-completion-return-flow.md#follow-up-return-route-inside-travelants)
+
+The latest signed staging build installed on iPhone 17 (iOS 27.2.1). The physical UI test verified the live MapKit route line and driving estimate with a synthetic trip and simulated public position, then closed the map back to Trip complete. C67Backend reported 203 tests with one opt-in skip. [Physical test evidence](../tasks/trip-completion-return-flow.md#follow-up-return-route-inside-travelants)
+
+## Direct trip completion after the last visit — 25 November 2026
+
+On iPhone 18 Pro Simulator (iOS 27.2), a synthetic Pocket trip with a planned return opened Trip complete directly after the last visit, kept the visit times, and dismissed with Done. A second UI test verified the return-directions preview action. The iPhone 18 Pro Max Simulator app test verified that a distinct custom endpoint still required arrival after restoring the trip. C67Backend reported 199 tests with one opt-in skip, including legacy trip restoration and final-visit replay. [Scope and evidence](../tasks/trip-completion-return-flow.md)
+
+The signed staging update passed the physical iPhone 17 (iOS 27.2.1) test. Finish last visit opened Trip complete directly, and Return to starting point foregrounded Apple Maps in driving directions mode with Starting point as the destination. [Physical test evidence](../tasks/trip-completion-return-flow.md#physical-iphone-verification--25-november-2026)
+
+## Before you go weather tips — 25 November 2026
+
+The staging-mode itinerary review on iPhone 18 Pro Simulator / iOS 27.2 displayed precipitation, feels-like heat, UV, and direct sunlight preparations together using synthetic forecasts. Both departure forecast decoding tests passed. C67Backend passed with 198 scenarios recorded, including one opt-in skip. A live Open-Meteo response for public Blok M coordinates confirmed the fields and units independently of the Simulator tests. [Scope and evidence](../tasks/itinerary-preparation-weather.md)
+
+The installed signed development update passed two physical UI tests on iPhone 17 / iOS 27.2.1. Museum Polri and the six-stop itinerary reached Review with live MapKit and live Open-Meteo. Both showed rain gear (49% chance of precipitation), water (feels like 32 °C), sun protection (UV 4.2), and the opening-hours reminder. [Physical test details](../tasks/itinerary-preparation-weather.md#physical-iphone-live-forecast-follow-up)
+
+## Implemented v5.2 ETA recovery — 25 November 2026
+
+The updated Pocket repository ran both public fixtures with live MapKit in a signed benchmark on a physical iPhone 17 / iOS 27.2.1. The Blok M museum completed with five ETA calls in 1.052 s. The six-stop itinerary verified every visit and the mandatory return at 12:43 WIB with 16 ETA calls in 2.979 s. Both used the first candidate in the frozen recovery list. SwiftPM passed 197 tests with one opt-in skip, and the focused v5.2 itinerary and save test passed on iPhone 18 Pro Max Simulator / iOS 27.2. The broader mock check passed 63 of 66 tests, with all three selection-stage failures reproduced on the pre-change commit. [Implementation and verification](../tasks/planner-v52-eta-recovery.md)
+
+The installed Travelants development build then passed both physical UI checks on the same iPhone. With controlled public inputs and live MapKit, the actual Trip Creation flow reached Itinerary Review for the museum and all six stops. The screens proposed 08:49 and 08:51 WIB respectively. [Physical UI results](../tasks/planner-v52-eta-recovery.md#physical-travelants-ui-follow-up)
+
+## Travelants v5.2 route recovery on iPhone — 25 November 2026
+
+A standalone Release benchmark on physical iPhone 17 / iOS 27.2.1 compared the v5.2 evaluator with bounded ETA-based recovery against the native MapKit adapter. Recovery completed the Blok M museum in both pairs and the six-stop return trip in one of two pairs. The original search found no full itinerary in those pairs. A tight-return variant exercised one ranking refresh and exhausted its recovery allowance before establishing a complete plan. This covers the prototype scheduler and live routing on the device. [Setup, timings and limitations](../research/planner-v52-reliability.md#live-mapkit-comparison-on-physical-iphone)
+
+## Travelants map sign-in — 23 November 2026
+
+The selected map design passed the generic Simulator build, two Apple sign-in unit tests, and six mock UI tests on iPhone 18 Pro Simulator (iOS 27.2). The UI tests covered cold launch, entry, privacy, App Review sign-in, session restoration, and both deletion paths. Light and Dark renders were inspected on iPhone and iPad, along with Accessibility XXXL on iPhone. The C67Backend package passed 158 tests. [Task and captures](../tasks/travelants-map-sign-in.md)
+
+On the updated `dev` base (`8d513d0`), a fresh Simulator build passed the 12 focused app unit tests and three mock UI tests for cold launch, sign-in, and privacy. All 194 C67Backend tests passed. The five changed Swift files passed formatting. The repository-wide check reported 20 files outside the change.
+
+## Four-second Travelants splash — 23 November 2026
+
+On iPhone 18 Pro Simulator (iOS 27.2), the mock cold launch showed Pin Portal, three waypoint pulses during route reveal, and Thread Through before opening Trip. The signed C67 scheme passed 35 focused app and UI tests, including the DEBUG skip and bundled video metadata. The generic Simulator build and 158 C67Backend tests also passed. [Task and verification](../tasks/travelants-splash-playback.md)
+
+The fade follow-up added a 320 ms handoff after playback. A mock cold-launch capture on the same Simulator showed Trip appearing underneath the fading splash. The focused run passed 10 app tests and one cold-launch UI test.
+
+After restoring the original movie and centered tile, the generic Simulator build, 10 app tests, one cold-launch UI test, and 158 C67Backend tests passed. A fresh launch on the same Simulator showed the restored artwork fading into Trip.
+
+## Trip complete summary — 23 November 2026
+
+Three UI integration scenarios passed on iPhone 18 Pro Simulator (iOS 27.2). They covered the time column, the Return to starting point preview callback, accessibility text in Dark Mode, and completing a synthetic Pocket trip with recorded visits. [Task and verification](../tasks/trip-started-layout.md)
+
+After adding the bundled Lottie completion mark, the focused summary layout and Dark Mode accessibility-size integration scenarios both passed. Result bundle: `/tmp/c67-trip-complete-lottie.xcresult`.
+
+Both scenarios passed again after the slower completion mark was moved to the end of the summary entrance. Result bundle: `/tmp/c67-trip-complete-lottie-delayed.xcresult`.
+
+## Arrival planned visit window — 23 November 2026
+
+Three focused UI integration scenarios passed on iPhone 18 Pro Simulator (iOS 27.2), covering the rendered range, accessibility text in Dark Mode, and progressing through the Pocket arrival flow. The legacy trip-creation scenario did not reach the itinerary. [Task and verification](../tasks/trip-started-layout.md)
+
+The Pocket arrival integration passed again after the approximation symbol was removed from the Up next estimate. Result bundle: `/tmp/c67-arrival-estimate-label.xcresult`.
+
+## Approved Trip Started layout — 23 November 2026
+
+Three focused UI integration scenarios passed on iPhone 18 Pro Simulator (iOS 27.2), covering destination-first placement, the GPS action row, Dark Mode at accessibility text size, and the synthetic no-GPS state. [Task and verification](../tasks/trip-started-layout.md)
+
+## Active trip starting-point fallback — 23 November 2026
+
+Two focused C67 UI integration scenarios passed on iPhone 18 Pro Simulator (iOS 27.2). The synthetic active trip showed its saved starting point and planned metrics while the device position was unavailable, and manual arrival remained available. Live MapKit route calculation was outside the synthetic test. [Task and verification](../tasks/trip-started-layout.md)
+
+## Active trip map layout — 23 November 2026
+
+Four focused C67 UI integration scenarios passed on iPhone 18 Pro Simulator (iOS 27.2). They covered the route and arrival previews, compact actions, Dark Mode at accessibility XXXL, and starting a synthetic Pocket trip with location unavailable. [Task and verification](../tasks/trip-started-layout.md)
+
+## Itinerary title chevron — 23 November 2026
+
+The focused Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). The title chevron opened the Edit trip name dialog, cancellation returned to the itinerary, and the save flow still reached Home. Result bundle: `/tmp/c67-itinerary-title-chevron.xcresult`.
+
+## Short itinerary connectors — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2) after shortening the gray dashed connectors between cards. The focused scenario passed again at the revised 24-point and 64-point lengths. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
+## Dashed gray itinerary timeline — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2) after replacing the stationary blue stroke with a dashed gray line. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
+## Continuous blue itinerary timeline — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). The third stop moved into the first slot, and captures before and during the drag showed that the blue line stayed fixed. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
+## Stationary itinerary connectors — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). Captures before and during the drag showed the card and number moving while the dashed connectors stayed in their slots. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
+## Itinerary drag timeline continuity — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). It moved the last stop into the first slot. During-drag and settled captures showed the same gray marker and connector dimensions. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
+## Closer itinerary map focus — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). It checked zoom, pin recentering, and card tracking while panning. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Anchored itinerary card during map focus — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). It checked that camera recentering stays active and that the compact card moves with the selected pin when the map is panned. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Itinerary map focus motion — 23 November 2026
+
+The focused mock Pocket UI integration passed on iPhone 18 Pro Simulator (iOS 27.2). It checked pin recentering, stable bottom placement across stops, and dismissal. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Itinerary map callout motion — 23 November 2026
+
+The focused mock Pocket integration scenario passed after adding pin-anchored callout transitions on iPhone 18 Pro Simulator (iOS 27.2). It verified opening, dismissal and opening a second pin. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Compact itinerary map pin card — 23 November 2026
+
+The focused Pocket UI integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2) with synthetic data. It verified that the schedule sits beside Open in Maps and that the action is at least 44 points tall. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Simplified itinerary map pin card — 23 November 2026
+
+The focused Pocket UI integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2) with synthetic data. It checked the card’s address and planned visit, the absence of the three removed fields, and the address fallback when switching pins. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Itinerary map pin details — 23 November 2026
+
+The focused Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2) using synthetic data. It compared the C2 callout's schedule with the itinerary, checked the rendered address, contact, hours and entry rule, then opened another pin with unavailable details. The Pocket HTTP integration also passed with a disposable database, covering authorization, account isolation, place matching and expired evidence. [Task and verification](../tasks/itinerary-map-pin-details.md)
+
+## Itinerary drag target slot — 23 November 2026
+
+One focused Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2). It moved the last stop to the first position and confirmed the new order. A screenshot captured while holding the drag showed the carried connector and the dashed target outline. [Task and verification](../tasks/itinerary-drag-target-slot.md)
+
+## Separate itinerary visit time row — 23 November 2026
+
+One focused Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2). It verified the full-width visit-time action below the reorder handle, opened Edit visit by tapping its trailing edge, and confirmed the edited duration on reopening. A Simulator capture showed the chevron at the right edge of the separate row.
+
+## Edit visit duration wheel — 23 November 2026
+
+One focused Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2). It selected 50 minutes in the native wheel, applied the change with the bottom Update itinerary button, and confirmed 50 minutes on reopening the sheet. [Task and verification](../tasks/itinerary-visit-duration-wheel.md)
+
+## Itinerary stop icons — 23 November 2026
+
+The focused Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2). Its itinerary capture showed the up/down chevrons on the reorder handle and a right chevron after the editable visit time.
+
+## Before you go preparation card — 23 November 2026
+
+The focused Pocket integration scenario passed on iPhone 18 Pro and iPad Pro 11-inch (M5) Simulators (iOS 27.2). It verified that the production-facing card appeared after Suggested departure in staging, with the synthetic rain tip and the opening-hours reminder. The iPad capture used Dark Mode and accessibility-medium Dynamic Type. [Scope and evidence](../tasks/itinerary-preparation.md)
+
+## Itinerary time labels — 23 November 2026
+
+The focused Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2) with synthetic data. It checked that the itinerary showed a plain visit time range and a driving duration without an approximation symbol.
+
+## Bottom trip actions — 23 November 2026
+
+One Pocket integration scenario passed on iPhone 18 Pro Simulator (iOS 27.2) with synthetic data. Recommendations, Main Spot, Itinerary, and the saved trip matched within one point for primary button width, height, left edge, and bottom edge. The same scenario saved the named trip to Home and reopened it. See the [task and verification](../tasks/align-trip-footer-buttons.md).
+
+## Itinerary checkmark and save to Home — 23 November 2026
+
+The Pocket fixture on iPhone 18 Pro and iPhone 18 Pro Max Simulators (iOS 27.2) verified that the checkmark opens the name dialog and saving displays the named trip in Home. The staging fixture covered cancellation and name validation. The larger-text fixture verified a tappable toolbar button at least 44 points tall. The next-day fixture verified save to Home and the date-edit recovery when starting that saved trip. The same-day fixture reached the first arrival control through “Start your trip today.”
+
+All 158 C67Backend tests passed. See the [task verification](../tasks/itinerary-save-to-home.md) for the other Simulator and formatting results.
+
+## Local iPhone signing — 23 November 2026
+
+Debug builds signed and installed on the paired iPhone 17 using a developer-specific bundle identifier and an existing development profile. Xcode 27.2 also built Debug for Simulator and resolved the TestFlight team, bundle identifier and entitlements for Release. The iPhone was locked during the launch attempt. See the [local signing task](../tasks/local-iphone-signing.md).
+
+## Travelants 1.0 App Review sign-in
+
+Release candidate `1.0 (202611192232)` enables **App Review Sign-In** for two configured demo emails. The password grant rejects other addresses before making a request and checks the returned email before saving the session. The archive's public configuration was verified against authenticated Pocket, the published privacy URL and disabled external AI. Demo passwords are stored in Keychain on the release Mac.
+
+All 158 C67Backend tests passed. Four focused iPhone 16 Simulator tests on iOS 27.2 passed. They exercise bad demo credentials, successful sign-in, session restoration, demo deletion, and the existing Apple entry and deletion flows with synthetic APIs.
+
+Both production demo accounts signed in as email-only users. Pocket completed permanent deletion for the disposable account over its production HTTPS endpoint. Authentication then rejected the deleted account. The replacement received a new account ID, and both demo accounts signed in again.
+
+The signed app installed on Giovan’s iPhone 17. iOS declined to launch it while the device was locked, so the on-device itinerary walkthrough remains pending. App Store Connect processed the build, accepted the account holder's export declaration, saved the private demo credentials and review notes, and moved version 1.0 to Ready for Review. The submission remains a draft.
+
+## Travelants App Store 1.0 preparation — 19 November 2026
+
+The signed local Release preflight archive reports Travelants `1.0 (202611191950)`, iPhone and iPad support, authenticated Pocket mode, and empty external AI configuration. Its public Privacy Policy setting is empty, pending the team's publishing details. All 157 C67Backend tests passed. The local Support and Privacy Policy pages passed heading, contact and reciprocal link checks. Listing keywords fit the App Store limit.
+
+On iPhone 16 Simulator (iOS 27.2), the captured Preferences, automatic next-day itinerary, planning without an AI prompt, and Privacy Policy link checks passed. The policy-link test used a fixture URL. Preferences and the navigation and arrival controls passed on iPad Pro 13-inch (M5) Simulator (iPadOS 27.2). The screenshot drafts are three opaque 1179 × 2556 iPhone PNGs and one opaque 2064 × 2752 iPad PNG. Itinerary and Active Trip captures use sample data. The physical-device release walkthrough, public URLs, and App Store Connect draft are pending.
+
+The unknown-hours itinerary, drag reorder and save passed together on iPhone 18 Pro Max Simulator. On iPhone 16, the hours disclosure test passed after verifying that all three places were selected. The separate reorder test reached the itinerary and revealed the stop with missing hours, but the drag-order assertion timed out or saw duplicate accessibility matches after updating the itinerary. Compact-device reorder remains unverified.
+
+Review materials and prerequisites are in the [App Store 1.0 task](../tasks/travelants-app-store-1-0.md).
+
+## Travelants automatic schedule from Main Spot — 19 November 2026
+
+Six automatic itinerary UI cases passed on iPhone 18 Pro Max Simulator (iOS 27.2). Next opened itinerary review directly when durations or hours were missing, when AI consent had never been granted, and when the first viable schedule was tomorrow. The tests checked save and reorder, the pinned Save action, and date editing after saving. The tomorrow result bundle includes screenshots of Main Spot and the itinerary. Both legacy Hybrid v4 UI cases and all 65 trip creation unit cases passed across the original and focused runs. The focused run corrected the test's assumption about the next-day departure time and made the legacy itinerary details scroll reliable.
+
+All 157 C67Backend tests passed, including local duration estimates with zero AI calls and one-attempt fallback after an optional provider failure. Signed iPhone Release build `0.1.0 (202611191646)` compiled. The Simulator used synthetic ETA and opening-hours inputs. Live routing and physical-device runtime were outside this run. Result bundles: `test_sim_2026-11-19T09-41-01-172Z_pid20997_004f8513.xcresult` and `test_sim_2026-11-19T09-47-54-728Z_pid20997_79792bf7.xcresult`.
+
+## Travelants single-screen Delete Account — 19 November 2026
+
+All 16 focused Account tests passed on iPhone 18 Pro Max Simulator (iOS 27.2, Xcode 27.2). The UI tests opened a single Delete Account sheet from History → Account, reached the system-styled Apple button at Accessibility XXXL, cancelled the review, and returned to sign-in after a synthetic Apple authorization. The manual recovery fixture confirmed that the option appeared after authorization failed and that an accepted deletion finished after leaving Account. Presenter tests covered zero submissions on cancellation, a mismatched Apple account, inline verification for legacy accounts, and a late callback after a session change.
+
+The generic iOS Simulator Release build, all 155 C67Backend tests, and `git diff --check` passed. Repository-wide SwiftFormat still reports existing formatting findings outside the changes for this task. The result bundle is `test_sim_2026-11-19T09-21-45-647Z_pid9923_4104c7be.xcresult` and includes screenshots of the review, recovery, and completion. The deletion tests used synthetic credentials and HTTP responses.
+
+On Giovan’s physical iPhone 17 (iOS 27.2.1) through Device Hub, Debug build `0.1.0 (202611191625)` opened the single Delete Account sheet and displayed the native Apple prompt. Cancelling the prompt and then the review preserved the fixture session across relaunch. With synthetic credentials and HTTP responses, automatic deletion progressed to the sign-in confirmation. The manual recovery flow displayed the separate consent and the Apple access help link after completion. Relaunching the fixture without reseeding returned to sign-in. The device was then updated to local Release build `0.1.0 (202611191626)` in authenticated Pocket mode and the normal sign-in screen opened. Face ID and production deletion through the revised interface await a separately authorized device test account.
+
+## Travelants Delete Account on a physical iPhone — 19 November 2026
+
+On Giovan’s iPhone 17 (iOS 27.2.1), the History account button did not open the Account sheet on the installed build and an initial local Release rebuild. Moving the 44 pt hit area inside the button label restored touch interaction. Local Release build `0.1.0 (202611191554)` opened Account and reached the delete confirmation in Device Hub. The focused deletion UI regression also passed on iPhone 18 Pro Max Simulator with synthetic account data.
+
+The production Pocket services were healthy after replacing only the account deletion module in image `account-deletion-recovery-20261119`. Five isolated worker tests passed against that image before switching the container. Both deletion request formats returned HTTP 401 without authentication. The deployment kept the existing ingress and volume. The previous image, integrity-checked SQLite backups, and rollback command are available under `/home/giovan/apps/c67-pocket-beta/staging/account-recovery-20261119`.
+
+After the user confirmed Face ID on the iPhone, Apple’s live token exchange and revocation both returned HTTP 200. The app showed “Your account has been deleted” on the sign-in screen. Pocket recorded one completed receipt and zero pending receipts. A read-only Supabase check found zero Auth users, Auth identities, journal upload rows, or Storage objects matching that receipt’s owner. The manual revocation option was covered by the isolated worker and Simulator tests and its live authentication gate was verified. The physical deletion used automatic Apple revocation. The build was installed directly on the iPhone.
+
+## Travelants schedule fallback and itinerary screens — 19 November 2026
+
+All 155 Swift package tests passed. Coverage includes automatic and Now rollover, closing hours that rule out today, manually pinned dates and visits, the last second before midnight, both days too short, and category-based preferences for unavailable or malformed hours. Estimated hours do not make a visit eligible when known hours or a booking rule it out.
+
+On iPhone 18 Pro Max Simulator (iOS 27.2), the current Hybrid v4.2 fixture went directly from Main Spot to the next day's itinerary with three selected places and an enabled pinned Save action. The unknown-hours flow passed through reviewing, reordering and saving. The larger-text UI test verified the pinned Save action was tappable and at least 44 pt tall after the processing sheet dismissed. Screenshots cover List of Places, Main Spot, both itinerary action layouts and the larger-text footer. Simulator inputs, ETA and opening-hours data were synthetic. The iPhone and TestFlight were untouched.
+
+## Travelants account deletion recovery — 19 November 2026
+
+The iPhone 18 Pro Max Simulator (iOS 27.2) passed the UI regression for the manual Apple revocation path, including leaving Account while deletion is pending and reopening the app after completion. Nine focused app tests passed. The client suite passed 152 tests, including the preserved request ID and revocation choice after a timeout and restart. The Pocket suite passed 67 tests. The OpenAPI check passed.
+
+A separate Simulator run exercised the current Pocket deletion worker over loopback HTTPS with disposable GoTrue v2.197.0 and PostgreSQL 17.11. The session and account came from GoTrue. A local test adapter forwarded Auth requests and ran the actual deletion migration's empty Storage manifest for the fixture. After confirming deletion in the app, the target Auth user and its journal row were gone, and its bearer session returned HTTP 403. The control user's session returned HTTP 200 and its journal row remained. The app returned to sign-in and stayed signed out on relaunch. The Apple association was synthetic, the run used manual revocation, and no Storage bytes or production users were involved. The fix was not deployed to the shared Pocket service or TestFlight in this run.
+
+## Travelants per-trip AI consent — 19 November 2026
+
+All 151 C67Backend tests passed. The consent regression verifies that legacy flags do not grant permission, manual planning succeeds with zero model calls, a valid grant survives repository relaunch, a repeated completed request does not call the provider again, and withdrawal or a changed disclosure invalidates the old grant. Two tests passed on iPhone 18 Pro Max Simulator (iOS 27.2): dismissing consent and completing a three-stop manual itinerary at an accessibility text size, and finding the policy link before sign-in and in Account. The simulator used fixtures and made no live AI requests. The [policy draft and configuration handoff](../product/privacy-policy/README.md) identify the remaining publication and physical-device checks.
+
+## Travelants account deletion rollout — 19 November 2026
+
+Applied only Supabase migration `20261118120000`, configured the deletion worker on Pocket image `v42-20261118`, and opened the public POST route. Verified Pocket health, local client-secret signing, live Supabase Auth access, and a successful empty Storage manifest for an ID verified to have no account. The SQL RPC grants execution to `service_role` and denies `authenticated`. Public deletion returned 405 for GET, 401 for a valid unauthenticated request, and 422 for a malformed request. Hours lookup still returned 401 without a session. Database, SQLite and ingress backup checksums passed before rollout. No real account was deleted; physical TestFlight deletion and real Apple token revocation remain to be tested with a disposable Apple account.
+
+## Travelants App Store P0 preflight — 19 November 2026
+
+The authenticated Pocket service is already running `v42-20261118`. Read-only inspection confirmed that the deployed parser accepts `hybrid_v4_2` and the existing job store contains 14 successful v4.2 jobs, including five with comparison dates. These aggregate records do not identify the submitting client build.
+
+The live ingress forwards hours lookup and returns 404 for account deletion. The deletion route exists in the active image, but its worker credentials and the Supabase deletion migration are absent. The shared migration ledger is also missing the separate personal AI planning migration, so a broad migration push would exceed this rollout's scope.
+
+The deletion migration also passed in an isolated Docker container using the same Supabase PostgreSQL 17.6.1.136 image digest as the shared database, with synthetic prerequisite tables and two synthetic owners. The check covered RPC permission boundaries, the Storage manifest's owner filter, upload blocking, and account-scoped cascades. It did not call real Supabase Auth, Storage or Apple services. The Apple Developer team currently has Maps and WeatherKit keys; a dedicated Sign in with Apple key for the primary App ID is still required.
+
+The local candidate image built and started with an isolated Nginx instance, temporary data, and synthetic credentials. Health, method gates, hours routing, deletion request validation, authentication rejection, and unrelated route rejection passed. All 66 Pocket tests passed, including the deletion receipt HTTP test. Nine focused iOS Account tests and one signed-out gate UI test passed in the iPhone 18 Pro Max Simulator. A broader Home UI run failed in the mock save-trip scenario. Physical TestFlight login, itinerary, and real Apple revocation remain unverified; the paired iPhone had build `0.1.0 (1)` installed during preflight. No shared services or data were changed.
+
+## Travelant P1 reliability — 19 November 2026
+
+The Swift package passed 149 tests and the Pocket suite previously passed 64 tests. OpenAPI validation and the generic iOS Simulator test build passed. On iOS 27.2 Simulator, 143 app tests passed with 5 skipped, and the focused future-trip date recovery UI test passed. A broader UI run had failures and timed out. See [P1 implementation and verification](../tasks/travelant-p1-reliability.md).
+
+## Traveller account deletion — 18 November 2026
+
+The Swift package passed 135 tests, including resuming deletion after relaunch and removing only the correct account's legacy drafts. The iPhone 18 Pro Max Simulator (iOS 27.2) passed 10 focused Account app tests and mock UI checks in total. The Pocket suite passed 63 tests, including rejecting a different Apple identity, waiting for active work, removing only the target account's jobs and retaining the receipt across a restart. OpenAPI validation passed.
+
+An embedded PostgreSQL 18.6 check with simulated Auth/Storage tables verified the migration, the service-only object manifest, the wait for an active media lease, the rejection of new uploads and account-owned row cascades. The actual Supabase Storage and Auth HTTP flow, live Apple revocation, the container image build and physical-device behavior remain unverified. The rollout prerequisites are documented in the [Pocket service guide](../../server/pocket/README.md#account-deletion).
+
+## Itinerary drag reorder — 18 November 2026
+
+Two UI tests and two app tests passed on iPhone 18 Pro Max Simulator (iOS 27.2). Synthetic Pocket review preserved the original order when the drag ended outside the list, then saved the next successful reorder. Timed mock review also saved the reordered stops. The app tests verified that a rejected Pocket order retains the previous proposal and that a timed order exceeding the deadline restores the previous proposal and draft. Simulator screenshots show the committed order. Auto-scroll on longer lists, VoiceOver traversal, and haptic feel on a physical iPhone remain unverified.
+
+The final result bundle is `test_sim_2026-11-18T02-33-32-466Z_pid63276_563df1e0.xcresult`. SwiftFormat and the worktree diff check passed.
+
+## Travelant error recovery — 18 November 2026
+
+The Main Spot follow-up passed 136 package tests and 62 focused app and UI tests on iPhone 18 Pro Max Simulator (iOS 27.2). The app test verified that retrying an unconfirmed submission keeps the selected places, main spot, full input and request ID. The UI test simulated a timeout after a Pocket job existed and checked that the banner showed **Check status**, hid the duplicate **Next** action, and reached itinerary review with the selected place. The fixture succeeds only on a repeat of the same request ID. Package tests distinguish a URL transport timeout from lost connectivity and classify gateway timeouts separately. The timeout was injected at the transport boundary. The full ten-minute UI polling limit and live provider behavior were not exercised.
+
+The local package passed 130 tests, including HTTP 429 versus 503 and recovery of an interrupted Pocket job under the same request ID. The focused iPhone application run passed 66 TripCreation and Account tests. A later focused test passed for an unconfirmed write with an invalid response, followed by a definitive failure and a new request identity.
+
+The iPhone 18 Pro Max and iPad mini (iOS 27.2) ran the synthetic missing-duration scenario in Light at standard Dynamic Type and Dark at Accessibility Large. The final iPhone Dark and iPad Light runs open the diagnostic sheet, assert immediate access to the affected duration control and reach itinerary review with the selected place. The iPhone normal planning/save and trip-name validation flows also passed. The initial UI runs exposed two test assumptions: a hardcoded synthetic default name and a tap attempt before the processing cover finished dismissing. The corrected iPhone tests passed. Result bundles and implementation findings are in the [error-handling audit](../tasks/error-handling-ux-audit-2026-11-18.md#remediation-follow-up--18-november-2026).
+
+VoiceOver traversal and spoken focus, a matching pre-change screenshot matrix, live providers, physical devices, injected startup/storage UI failures, and runtime map/weather retry fault injection remain unverified.
+
+## Hybrid v4.1 engine experiment results — 18 November 2026
+
+The first synthetic non-UI run of `V41EngineExperimentTests` passed 17 of 18 test methods (26 of 27 parameter-expanded invocations). The persistence method failed because its assertion compared the restored working input with the raw request input. The repository intentionally adds `reasonableOrdering` and `automaticFirstPlan` before saving the job and retains the original request in `command`.
+
+The test now verifies those two expected flags, the unchanged original command, and equality of the working input, failure status, error code, and diagnostics across reopening. Only `failedAccessDiagnosticsSurvivePersistenceWithoutAnotherSearch` was rerun after the correction: **1 test passed**, zero issues, exit 0. Production code was unchanged. All 18 methods now have passing observations across the original run and targeted rerun; the complete suite was not rerun. SwiftFormat passed for all 674 Swift files. See the [cause, scenario results, commands, and limitations](../tasks/hybrid-v41-engine-experiment-results.md).
+
+## Hybrid v4.1 engine test preparation — 18 November 2026
+
+At preparation, the additional non-UI suite contained 18 test methods with 27 planned parameter-expanded invocations using synthetic planner/repository providers. Syntax validation and `swift build --build-tests` compile/link checks succeeded, with execution deferred at that stage. Execution was subsequently authorized and is recorded above. The earlier 111-test result below remains historical evidence for the previous revision. See the [preparation and scenario matrix](../tasks/hybrid-v41-engine-test-preparation.md).
+
+## Hybrid v4.1 — 17 November 2026
+
+The package suite passed 111 tests, including 20 v4.1 cases. On iPhone 18 Pro Max / iOS 27.2 Simulator, all 51 `TripCreationTests` passed and four targeted v4/v4.1 UI flows passed. Focused rechecks covered v4.1 after search refinements. The new cases cover structured timing, diagnostic recovery, adaptive search and budget persistence, duration review, access/session/entry constraints, zero-call scheduling, and semantic reuse. Six four-stop static synthetic cases matched an independent 24-order reference using 33–38 route attempts. OpenAPI/fixture validation, SwiftFormat, document references, and whitespace checks passed. Provider fixtures are synthetic; live Luna/MapKit, physical-device behavior, and human itinerary quality for this revision remain unverified. See [implementation details and result bundles](../tasks/hybrid-v41-integration.md).
+
+## Hybrid v4 date fallback — 17 November 2026
+
+Four targeted repository tests and four iPhone 18 Pro Max / iOS 27.2 Simulator tests passed with synthetic providers. The app checks cover automatic rescheduling in review, saving and restoring the new date, explicit confirmation through the presenter, and the schedule controls. See the [Hybrid v4 integration checkpoint](../tasks/hybrid-v4-integration.md#automatic-date-for-the-first-itinerary).
+
+## Active-trip Liquid Glass — 15 November 2026
+
+The moving/arrival panel uses native regular Liquid Glass on iOS 26+, with a regular material fallback on iOS 18–25. Mock Debug build succeeded and the moving preview was visually inspected on iPhone 18 Pro Max Simulator / iOS 27.2. The fallback and physical-device appearance were not verified.
+
+## Active-trip Hi-Fi alignment — 15 November 2026
+
+Mock iPhone 18 Pro Max / iOS 27.2 build and Hi-Fi preview UI checks completed. The moving and arrival previews were visually inspected; the route instruction and pause/end controls in the moving preview remain synthetic. Live moving-route behavior, physical-device arrival, and complete-screen visual acceptance were not verified.
+
+## Recommendation search entry — 15 November 2026
+
+In mock mode on iPhone 18 Pro Max / iOS 27.2, a focused UI test verified that the recommendation footer omits Search for a place, My Places provides the action, and opening search preserves the selected count.
+
+## Itinerary map and weather display — 15 November 2026
+
+[Verification and source audit](../tasks/itinerary-weather-map-adjustments.md) cover full-screen map interaction and historical forecast display. The local WeatherKit-first ordering adapter and Open-Meteo fallback are tested with synthetic responses; live credentials, provider attribution and deployment remain unverified.
+
+The local WeatherKit-first change passed 41 Pocket server tests using synthetic responses, 68 C67Backend tests, OpenAPI/fixture validation, and the iPhone 18 Pro Max / iOS 27.2 mock itinerary and departure-fallback tests. The server tests verify signed test tokens, source selection, fallback and attribution propagation, not a live Apple or Open-Meteo response. No server deployment or physical-device test was performed.
+
+## Full-page trip creation — 15 November 2026
+
+[Full-page navigation verification](../tasks/trip-creation-full-page.md) covers the synthetic Simulator flows and remaining live recovery limit.
+
+## Pocket UI handoff — 15 November 2026
+
+Pocket-mode Debug build and launch succeeded on iPhone 18 Pro Max / iOS 27.2; the installed configuration was verified as Pocket. A synthetic Pocket integration UI test passed through itinerary generation, reordering, and saving. SwiftFormat passed for all 662 Swift files. The Simulator requested location permission but a successful device position was not observed. No live Luna order or physical-device GPS was validated in this handoff.
+
+## Recommendation device distance — 15 November 2026
+
+[Verification and GPS limits](../tasks/recommendation-device-distance.md) cover simulated Core Location, device-distance display, and the remaining physical-device verification.
+
+## Preference quick-pick selection — 15 November 2026
+
+[Verification](../tasks/preference-quick-pick-selection.md) covers selection and removal in the mock Simulator.
+
+## Itinerary time display — 15 November 2026
+
+[Verification](../tasks/itinerary-24-hour-time.md) covers fixed 24-hour formatting and a synthetic Simulator preview.
+
+## Trip processing Hi-Fi — 15 November 2026
+
+[Task and verification notes](../tasks/trip-processing-hifi.md) cover the two processing states, mock Simulator walkthrough, and remaining live-recovery checks.
+
+On 19 November 2026, the Luna loading illustration was centered with the title and status, with spacing based on the supplied SVG. The globe makes one turn every 12 seconds behind a fixed circular frame. A 13-second recording of the Debug preview on iPhone 18 Pro Max (iOS 27.2) showed the globe and landmarks moving while the title and status stayed fixed. The recording covers the standard motion setting and does not call Luna.
+
+Two trip-processing checks and the mock future-trip creation, save, and date-recovery UI test passed on the same Simulator. SwiftFormat and `git diff --check` passed.
+
+The recommendation loading screen randomly picks the globe or yellow car and keeps the choice until that screen closes. With Reduce Motion enabled the selected illustration stays still. On iPhone 18 Pro Max (iOS 27.2), the recommendation Debug preview held the car across captures taken 14 seconds apart and picked the globe on a subsequent presentation. The preview did not use live Luna.
+
+The buildings now scroll left in a six-second loop behind the car. A separate Debug preview recording on the same Simulator showed the skyline moving and returning to its starting position while the road stayed fixed. SwiftFormat and `git diff --check` passed.
+
+The itinerary loading illustration now uses activity snapshots from the active planner. It compares illustrative route lines during travel-time checks and moves the same pins into a timeline for weather and daylight, Luna or on-device advice, and opening hours. The UI keeps a generic map if the step is unavailable and respects Reduce Motion. The illustration does not display the calculated route or verified opening windows. The recommendation screen still picks the globe or car.
+
+The simulator recording on iPhone 18 Pro Max (iOS 27.2) is a Debug preview with synthetic activity changes. Two app tests and the mock itinerary creation, save, and future-date recovery UI test also passed on that Simulator. The Swift package passed 150 tests, including a gated formula route check with zero model calls. The local Pocket server suite passed 65 tests on retry after an existing temporary-directory cleanup race. It includes an owner-scoped activity test that holds each synthetic provider while reading the current phase. OpenAPI and SwiftFormat passed. Weather and Luna activity require the updated Pocket server; the existing server contract remains compatible and falls back to the generic map. No deployment or live Luna validation was performed.
+
+The visual refinement tightened the itinerary loading layout and aligned the timeline cards and weather icons. The map now pans upward to reveal the timeline at its original scale. The Debug build and a 14-second preview recording on the same Simulator verified the four illustrated activities and their transitions. SwiftFormat and `git diff --check` passed.
+
+A second visual pass replaced the uniform street grid with an illustrated waterfront, softened the route motion, and simplified the timeline to opening windows and connected stops. A mock Debug build and a separate preview recording verified all four activities on iPhone 18 Pro Max (iOS 27.2). SwiftFormat and `git diff --check` passed.
+
+## Runtime visit research and Luna — 14 November 2026
+
+[Current implementation and evidence](../tasks/pocket-runtime-visit-resolution.md): native catalog fallback and geographic allowlists removed; selected places are researched by the server with actual Luna. Backend 53, core 14 and Python resolver 24 checks pass. Targeted Simulator fixtures pass 36 checks; the live five-place UI path also passes, but schedules only 1/5 places. Six HTTP 524 responses, conflicting hours and ambiguous branch identity remain material coverage limits. A focused fresh-source/batched-Luna park test passes. The smaller-batch Perpusnas experiment also returned unresolved after HTTP 524. A real native Responses extraction completed, but final server/advice acceptance failed with URLError and work stopped at the user’s requested boundary. No shared server deployment or physical-iPhone/TestFlight acceptance is implied.
+
+
+[Live Pocket and TestFlight handoff](../tasks/pocket-live-testflight-handoff.md) records the later iPhone 18 Pro Max Simulator results with real venues, Apple ETA, Luna, the server container smoke check, and the remaining signing/HTTPS gates.
+
+## First Pocket itinerary — 14 November 2026
+
+The [implementation and verification record](../tasks/pocket-first-itinerary.md) covers direct planning from selected destinations, conditional availability confirmation, editable timing and endpoints, and retaining omitted destinations with reasons. Package suites passed 14 solver tests and 51 backend tests. The final focused run passed 33 presenter and 3 UI tests on iPhone 18 Pro Max Simulator. A preceding broader run passed 12 additional recommendation and trip-creation UI tests. One opt-in live MapKit test passed after choosing the origin and destination through search. The first itinerary used live automobile ETA and bundled venue evidence.
+
+## Jakarta discovery boundary and direct processing — 14 November 2026
+
+The [follow-up evidence](../tasks/jakarta-discovery-direct-processing.md) records 42 passing hosted model/presenter tests and a successful unsigned iOS device Release build using Xcode 27.2 / Swift 6.4.2. All 659 remaining Swift files pass pinned formatting; whitespace and plist checks pass. The Australian-bookstore regression is covered with stubbed mixed local/foreign responses plus coordinate/country/radius checks, not a live provider run. Unrelated preferences remain separate queries, and completing the main-spot/duration survey directly attempts planning without Confirm trip. Missing origin, personal availability/consent, larger selections and the unchanged narrower planner areas still have explicit gates. No UI/render/manual tests, live provider queries, physical-device test, deployment or TestFlight action ran. Earlier counts below belong to their respective checkpoints.
+
+The subsequent Simulator walkthrough verified selection recovery, a one-hour main spot in the mock itinerary, and the direct handoff to availability review with live destinations. A live partial result kept the selected place after Refresh. The exact independent-bookstore query remained empty within Jakarta's search radius. The latest Release build and 44 selected unit tests passed after fixing the planning banner and reporting MapKit's no-result case separately. Details and remaining quality gaps are in the same task record.
+
+## Recommendations before trip configuration — 14 November 2026
+
+The [flow-change evidence](../tasks/recommendations-first-flow.md) records passing Debug Simulator and unsigned iOS device Release compilation with Xcode 27.2 / Swift 6.4.2. Focused hosted model tests pass 36 tests across creation/preference suites on iPhone 18 Pro Max / iOS 27.2; backend tests pass 47 and Pocket Engine tests pass 12. All 660 Swift files pass pinned formatting; plist/entitlements and whitespace checks pass. Fixed the old recommendation initializer call that caused a SwiftUI type-check failure, a compiler warning, and stale recommendation-error handling. Selections above six reach the later configuration intact; the existing planner still rejects unsupported counts. UI/render tests, manual interaction, live MapKit quality, physical devices, signing and TestFlight were excluded. A nonblocking Xcode App Intents metadata warning remains; this app does not depend on AppIntents.
+
+## Travelant TestFlight preparation — 13 November 2026
+
+Travelant 0.1.0 (build 1) archived for a generic iOS device with Xcode 27.2, exported with App Store distribution signing, and passed Xcode’s App Store Connect validation. Apple initially rejected the missing iPad orientation declarations. XcodeGen now declares all four iPad orientations and portrait on iPhone. The exported bundle was verified to include the Pocket HTTPS URL and WeatherKit entitlement. The app record exists in App Store Connect. Build upload, physical device testing, and a live WeatherKit request from this build remain pending.
+
+## Native Pocket Engine integration — 12 November 2026
+
+[UI integration evidence](../tasks/pocket-ui-integration.md) records the freshly pulled dev base, 62-label inputs, independent discovery, availability review, constrained Luna advice, real solver and local trip persistence. Local checks passed: shared-client/adapter package 47, extracted core 12, and focused app/Simulator selection 29 (zero failures/skips, 83.5 seconds), including both Pocket UI tests. Primary-checkout Release Simulator compilation and normal Debug build/install/launch passed without diagnostics; compiled Debug mode is pocket. Contract, pinned formatting and whitespace checks passed. End-to-end UI transport/venues/ETA/model responses were explicitly synthetic; the local core and adapter were real. Server deployment/live providers, WeatherKit provisioning, oldest-runtime/device/accessibility acceptance and signed TestFlight archive remain separate. No cloud CI was started.
+
+## Native ITINERARY LIST — 11 November 2026
+
+[Itinerary evidence](../tasks/itinerary-list-swiftui.md) records the HI-FI review screen, supplied thumbnail exports, native map/disclosures and real proposal integration. XcodeGen and Simulator builds passed with Xcode 27.2, retaining the iOS 18 minimum. The final iPhone 18 Pro / iOS 27.2 Light run passes 2 UI tests (sample preview and generated edit/regenerate/add-place-search/save/detail); Dark accessibility XXXL passes 1 preview/scroll/interaction test. Home's save/detail/back regression passed with the new review flow. Standard Light/Dark and iPad renders were inspected. All 18 touched Swift files pass formatting; the repository-wide check still finds the two unrelated existing issues. Sketch sample content stays in the DEBUG preview; generated proposals do not invent missing per-stop weather, categories, photos or distances. Device, manual VoiceOver, iOS 18 runtime and live providers remain separate acceptance.
+
+## Native HOME EMPTY — 11 November 2026
+
+[Home implementation evidence](../tasks/home-empty-swiftui.md) records the Sketch HI-FI slice and native Trip/History entry into the existing planning flow. XcodeGen generation and iOS Simulator build passed with Xcode 27.2, retaining the iOS 18 minimum. On iPhone 18 Pro / iOS 27.2 in mock mode, the final Dark run passed 3 Home tests, including accessibility XXXL and proposal/save/detail/back; the final Light run passed Home navigation plus Account and Discovery regression checks (3 tests). Light, Dark, large-text and iPad Pro 11-inch Simulator screenshots were visually checked. Changed Swift files pass the pinned formatter; the full repository check still reports two unrelated existing formatting problems. Device, VoiceOver, iOS 18 runtime and live-provider acceptance remain separate.
+
+## Foundation Models focused English experiment — 5 November 2026
+
+[The focused experiment](../../research/evaluations/foundation-models-2026-11-04/focused-english/REPORT.md) tested smaller task-specific schemas and context on the on-device M5 Mac model. A provisional single-review assessment found five of 12 matched cases correct in both repetitions, while ambiguity, negation, deadlines and stale proposals remained problematic. Three synthetic read-only tool cases each made the expected call; one response inaccurately reported 70% as 69.99%. Experimental harness guard tests passed, but the guard still permitted an incorrect interpretation of an ambiguous request. These are not tests of the app's production validator, automatic task router, physical iPhone, live providers, or independent human review.
+
+## TripSense repeated-search recovery — 4 November 2026
+
+[Search-limit recovery](../tasks/tripsense-search-budget-recovery.md) reproduced the iPhone-reported wrapped search-budget error at the production orchestration seam. One tool-free local finishing request now uses already retrieved matching candidates when enough exist; the five-search cap and native validation remain enforced. Safe UI error mapping avoids tool-state/coordinate dumps. The package suite passed 52 deterministic tests with one opt-in live test skipped; the standalone app built and passed three fixture tests on Simulator. Live iPhone model/MapKit recovery and visual acceptance remain unverified.
+
+## Foundation Models language-assistant evaluation — 4 November 2026
+
+[The isolated evaluation](../../research/evaluations/foundation-models-2026-11-04/REPORT.md) used Apple's on-device `SystemLanguageModel.default` on an M5 Mac with synthetic cases and process-level network denial. An additional English M1 and Indonesian diagnostic M2 sample returned while Wi-Fi and Ethernet were disabled and no active network interface was reported; neither exercised a tool call. Runtime locale support for `id_ID` was false, so Indonesian observations are diagnostic rather than eligible product results. The supported English control returned nine contract-valid responses in ten attempts, but none had an exact action-field match; one attempt timed out. Two-human semantic review, target-iPhone inference, offline fixture-tool execution and real application validator/fallback checks remain unverified. The corrected nullable schema was tested in a follow-up after the initial evaluator results had been seen; it is not a fresh holdout.
+
+## TripSense optimization and OSM — 3 November 2026
+
+The standalone POC now compares up to 720 candidate orders using a directed ETA matrix, validates up to five schedules at actual segment departure times, and has an OSM hours adapter with conservative matching. [Live evidence](../../research/tripsense-poc/FEASIBILITY.md) shows lower travel estimates than revalidated baselines in three Mac scenarios. The six-place OSM audit could not establish coverage: the provider timed out in this environment, and a separate direct endpoint probe returned HTTP 406. Test, Simulator and formatting outcomes are recorded in [task evidence](../tasks/tripsense-poc.md). Physical-device and accessibility acceptance remain separate.
+
+## TripSense standalone native experiment — 3 November 2026
+
+[TripSense feasibility](../../research/tripsense-poc/FEASIBILITY.md) records actual on-device Mac Foundation Models → Tool → MapKit execution, real Jakarta directions/schedules, 17 deterministic package tests, a separate passing opt-in live integration test, and 2 iOS 27.2 Simulator application unit tests. The separate iOS 26+ project builds with Xcode 27.2. This does not change the C67 iOS 18 deployment target or establish phone execution, UI/accessibility acceptance, venue hours or optimal routing. The measured four-stop geographic heuristic was 1,096 seconds slower than its baseline. See [task/evidence](../tasks/tripsense-poc.md).
+
+## Personal planning repository implementation — 30 October 2026
+
+See [the current task](../tasks/ai-trip-planning-implementation.md) for exact commands, cases and exclusions. The new default planning flow, API/worker/provider adapters, additive SQL and OpenAPI 0.6 are implemented locally. Backend TypeScript/style checks and 21 synthetic Node tests/subtests pass, including migration execution on disposable PostgreSQL 18.6 with simulated roles/claims. Contract/resource/legacy compatibility, configuration and local documentation checks pass.
+
+The Swift package and generic iOS Simulator target compile successfully; **no iOS/package/UI tests or Simulator interaction were run**, as explicitly requested for this batch. Real Apple/model calls, matching-image PostgreSQL 17/full Supabase acceptance, new container runtime, GitHub CI results and new shared deployment are not established. The prepared Compose configuration validates without starting services. Existing migration/fixture/seed bytes and legacy contract entries remain intact.
+
+The sections below retain earlier dated evidence; their counts and deployment results do not apply to the new planning slice.
+
+**23 October 2026.** Evidence below distinguishes starter/mock, disposable CI and shared homelab checks; it does not establish product validation.
+
+| Check | Result / boundary |
+|---|---|
+| Swift package | 4 tests pass: snapshot/retry behavior, missing-session boundary, configuration validation, RPC headers/error/date decoding |
+| iOS Simulator build | Pass with Xcode 27.1 / Swift 6.4; deployment target iOS 18 |
+| Mock UI smoke test | 1 test passes on iPhone 18 Pro Simulator, iOS 27.0: discovery → detail → save |
+| Configuration | Dummy live mode/client key and local URL confirmed in the built Info.plist; no live server request implied |
+| API contract | OpenAPI 3.1 validates; all three JSON fixtures validate; bundled catalog and SQL seed match the authoritative fixture |
+| Configuration formats | XcodeGen/workflow YAML and local Supabase TOML parse |
+| Project generator | XcodeGen 2.45.4 |
+| Supabase CLI | 2.121.0 pinned with npm lockfile; config and migration name generated through CLI |
+| Database runtime | Verified locally on 23 October: clean startup and guarded local rebuild apply the migration/seed; 14/14 pgTAP checks pass and public-schema lint reports no errors. See local foundation evidence below. |
+| GitHub Actions | Baseline commit `640f035` passed `ios`, `contracts` and `database`; new conventions/formatter PR is checked separately |
+| Auth / homelab | Local tests and shared homelab integration verified; shared suite passes 28 checks and preserves the existing account. Native iOS login and real-person app sessions remain untested. See homelab evidence below. |
+| Physical device / offline / field use | Not tested; mock trips are memory-only |
+
+Before future shared backend changes, rerun database/API checks for the proposed revision, review the homelab database version and existing schema, and prepare a separate operational deployment plan. Verify the native traveller session path before connecting the app to shared data. The local development stack is not an export of homelab credentials or data.
+
+## Team-conventions setup
+
+- The checksum-verified SwiftFormat 0.64.1 runner successfully downloaded its pinned macOS release, formatted two Swift files for layout only, and passed `--check` for all 15 Swift files.
+- The shared package still passes all 4 tests after formatting. Contract/fixture checks, Markdown links/fences, Python syntax and workflow YAML checks pass.
+- GitHub protection/merge settings are documented in [Repository settings](../operations/repository-settings.md) and verified by reading back the GitHub API.
+- Main requires an eligible human approval. Ownership, CODEOWNERS and collaborator roles were explicitly skipped; the setup PR is not automatically merged.
+
+## Local backend foundation — 23 October 2026
+
+Scope: [foundation task](../tasks/server-local-foundation.md), branch `gi/server-local-foundation`, based on main commit `1dd5eeb`. No domain migration, wire contract, native app feature or shared-server configuration was changed.
+
+Environment: macOS arm64, Docker Desktop engine 29.6.1, Node.js 24.14.0, Python 3.14.6, pinned Supabase CLI 2.121.0, local PostgreSQL 17.11. Docker had no pre-existing containers or volumes before the C67 stack was started. The existing migration and synthetic seed applied successfully at first startup.
+
+| Check | Actual result |
+|---|---|
+| Reproducible local rebuild | Before reset, confirmed `c67-starter` had zero Auth users, zero trips and exactly the authoritative catalog fixture. `npm run db:reset` targeted only local data and reapplied schema/migration/seed successfully. |
+| Database | `npm run db:test`: 14/14 pgTAP checks pass after the rebuild. |
+| SQL lint | `npm run db:lint`: no public-schema errors. |
+| HTTP/Auth | `npm run api:test`: 27/27 checks pass, including two signup/password sessions, token refresh, invalid-token rejection and missing-session denial. |
+| Ownership and writes | Account A/B isolation works in both directions through direct Data API reads; anonymous reads and direct insert/update/delete are rejected; unpublished content is hidden through both RPC and direct reads. |
+| Copy/retry | Response matches the source snapshot, timezone offsets preserve the same instant, identical retries return one trip, changed input returns 409, and four concurrent same-command requests return one persisted trip identity. |
+| Cleanup | Temporary users, their cascading trips and the temporary draft are removed and their absence verified. |
+| Contract/fixtures | `.venv/bin/python scripts/check_contracts.py` passes OpenAPI, fixture schema, package copy and SQL seed consistency checks. |
+| CI configuration | The existing database job now includes pinned Python 3.12, SQL lint and local HTTP tests. Updated GitHub Actions have not been run remotely for this branch. |
+
+The local gateway permits reading the public synthetic catalog without an API-key header. This is not evidence of API-key enforcement at the homelab gateway. Private trip commands are still rejected without a valid traveller session; ownership enforcement was tested independently of client-key presence.
+
+The HTTP suite uses Python's standard library and obtains local credentials in memory; keys, passwords, sessions and response bodies are not recorded in the repository. No test user or private trip is part of the seed. The database stack is stopped after verification, with its fixture-only local volume retained for the next start.
+
+Unverified: native iOS login/session storage, Simulator/live wiring, physical devices, expired-token behavior, deployed homelab/API compatibility, storage/media, database load, backup/restore and product policy. No commit, push or deployment was performed. The work intentionally ends at foundation step 1.
+
+## Shared homelab foundation — 23 October 2026
+
+The approved deployment is complete. See [Homelab verification](../history/homelab-verification.md) for exact evidence and recovery limits: private backups verified, both databases restored in isolation on PostgreSQL 17.6, 14/14 isolated pgTAP checks and 28/28 shared HTTP checks passed, official migration history recorded, all 11 services healthy, existing Auth account preserved and temporary records/container removed. These results supersede the earlier local-only homelab boundary for the starter foundation. Native iOS integration and step 2 APIs remain separate work.
+
+## Private trip reads — CI and shared homelab verified
+
+Implementation commit `fa274b1` passed the database and contract jobs in [CI run 39937332257](https://github.com/pibeebee/C67/actions/runs/39937332257). The disposable GitHub Linux stack applied both migrations and the synthetic seed after a clean rebuild. Both pgTAP files passed: 40/40 assertions (14 foundation plus 26 private-read assertions). Public-schema lint reported no errors. The HTTP suite passed 39/39 checks through real local Auth sessions, then removed its temporary data and stopped the stack.
+
+New evidence covers empty/default owner lists, start-time/UUID ordering across page boundaries, account-bound/invalid cursors, persisted detail, uniform missing/foreign 404s and non-finite-date rejection. Existing copy/retry/isolation checks also pass. OpenAPI 0.2 and all three fixtures validate, generated catalog copies remain consistent, and local Python syntax/whitespace checks pass.
+
+This CI stack uses PostgreSQL 17.11; shared homelab remains PostgreSQL 17.6. All four CI jobs passed at documentation checkpoint `4a425bb`. The [approved homelab plan](../history/homelab-trip-reads-plan.md) has also been executed: both databases restored on the exact shared image, 40/40 isolated pgTAP assertions and 40/40 shared HTTP checks passed, the new migration is recorded by the official runner, all 11 services are healthy and the original account/catalog remain with zero trips. Temporary users/data/container were removed. See [actual shared results](../history/homelab-trip-reads-verification.md). Both private RPCs are deployed; native Swift repository/UI integration is separate work. See the [task](../tasks/private-trip-reads.md).
+
+## Trip model foundation (stage 3A) — CI and shared homelab verified
+
+Implementation `d9d90f3`, [CI run 39988491177](https://github.com/pibeebee/C67/actions/runs/39988491177): three SQL test files pass 79/79 pgTAP assertions, public-schema lint reports no errors, and real-session HTTP acceptance passes 54/54 checks on the disposable CI stack. OpenAPI 0.3 and five fixture files validate; original catalog copies/seed remain consistent. Existing API tests are retained and pass alongside new identity, destination-time and revision checks. No Swift source changed; all four CI jobs passed at c9164b4, including the Simulator check.
+
+This verifies a clean migrated stack, V1/V2 compatibility, two-account privacy, source version attribution, legacy null-zone behavior, changed-zone/API-generation conflicts, concurrent retries and UTC/date/DST boundaries. The [approved homelab execution](../history/homelab-trip-model-verification.md) additionally restored both databases on PostgreSQL 17.6, proved an upgrade over a persisted synthetic legacy trip without changing its snapshot/owner/request/retry behavior, and passed 79/79 isolated pgTAP assertions before shared application.
+
+Stage 3A is deployed: official history has all three migrations, and 55/55 shared HTTP checks passed. Final state: 11 healthy unchanged containers, one original Auth account, one catalog version/root and zero trips; temporary accounts/trips/draft/root/container were removed. Private backups and exact source hashes are recorded in the [plan](../history/homelab-trip-model-plan.md) and results. Revision alone does not demonstrate optimistic concurrency or retry-after-edit support; see [ADR-0003](../architecture/decisions/0003-trip-model-foundation.md).
+
+## Normalized trip graph (stage 3B) — backend CI verified
+
+Implementation dd94b14, [CI run 40046041636](https://github.com/pibeebee/C67/actions/runs/40046041636): four SQL files pass **141/141** assertions (79 existing + 62 new), public-schema lint reports no errors, and the expanded real-session HTTP suite passes **66/66** checks. OpenAPI 0.4 and nine fixtures validate, including known/unknown graph and both landing templates; generated catalog/seed copies are unchanged. Python syntax, documentation links and whitespace checks pass. All four implementation CI jobs passed, including Simulator; no native source changed.
+
+Evidence includes distinct origin/landing/first-stop segments, first-stop landing with/without an origin, null unknowns, integral/fractional JSON duration boundaries, stable whole-graph retries, four concurrent retries, separate occurrence identities, source-change independence, owner RLS on every child table, composite cross-trip/day/source rejection and guarded parent cleanup. The seven earlier API payloads remain compatible through the retained suite.
+
+This CI verifies clean migration and all creation paths. Existing persisted V1/V2 backfill still requires the [prepared homelab procedure](../history/homelab-trip-graph-plan.md) in a restored isolated clone before shared deployment. Read-only preflight found 11 healthy services, one user/catalog/root, zero trips and exactly three prior migrations; existing stop arrays satisfy the normalization contract. No stage 3B shared mutation is claimed. The graph is one initial source/day 0, with no scheduler/provider, public edits, lifecycle transition or native integration.
+
+## Consolidated backend stages 3B–7 — source/CI complete, shared gate pending
+
+Giovan closed PR #4 and requested one PR after the complete backend batch. PR #4 is closed and no replacement is open. Source checkpoint c55aef6 passed all four [CI jobs](https://github.com/pibeebee/C67/actions/runs/40255936842) on 26 October: **167/167 SQL assertions**, clean SQL lint, **66 retained HTTP checks**, **16 complete-backend acceptance checks**, **2 image-decoder tests**, read-only API health and the restricted production Docker image smoke. OpenAPI 0.5/10 fixtures validate. The worker's pinned npm runtime dependencies report zero known vulnerabilities. No Mac Docker was started.
+
+Acceptance actually exercised real password/refresh sessions, query-bound discovery pagination, CAS edit races, permanent creation/apply receipts, root/day/date reschedule, explicit source append and retained-occurrence overlap choices, private Storage byte upload/download denial, reported-location session checks, delayed lease recovery/stale finalization, decoded JPEG publication without input EXIF, accepted journal/album, invalid bytes rejection, protected documented topology and exact synthetic account/row/object cleanup. Service-role credentials were confined to setup/worker/cleanup; traveller JWTs established privacy. No real person's media/location was used.
+
+Read-only shared preflight still found 11 healthy services, one original account/catalog/root, no trips/buckets/objects, three migrations and no media worker. The four pending migrations and one new worker are **not deployed**. The [consolidated plan](../history/homelab-backend-completion-plan.md) supersedes the earlier graph-only plan and pins input hashes and exact backup/restore/backfill/Storage/runtime writes. Existing postgres is not the storage.objects owner/member; the existing supabase_admin migration login was verified read-only and will be used only within the approved plan, without granting new rights.
+
+The agreed scope is curated catalog, private albums, session-start reported-location policy, planned-only edits/merge, no completed/skip/ended_early or public authoring. See [ADR-0005](../architecture/decisions/0005-backend-mvp.md), [completion task](../tasks/backend-completion.md) and [operations](../operations/backend-operations.md). Source/CI completion is not shared runtime, physical-device, field GPS, media authenticity, off-host recovery or load certification. The review PR remains deferred until operational verification is complete.
+
+## Consolidated backend stages 3B–7 — shared execution complete
+
+The separately approved [combined plan](../history/homelab-backend-completion-plan.md) is executed. [Full shared evidence](../history/homelab-backend-completion-verification.md): two-database restore on exact PostgreSQL17.6, V1/V2 persisted backfill/receipts after edits, **167/167 isolated SQL assertions**, four official migrations (seven total), **67 retained + 17 completion = 84 shared HTTP checks**, private Storage/actual image validation/journal/album and exact cleanup. A diagnosed Cloudflare1010 denial affected Python-urllib; the binary suite now uses its existing C67 client identity. No gateway/Cloudflare policy changed.
+
+Original Auth account/catalog/root fingerprints remain; final test rows and Storage objects are zero, two buckets are private/empty. The new restricted image worker is healthy; all 11 existing Supabase containers are unchanged/healthy, database ports stay unpublished, and the isolated test container/tunnel were removed. Private backup checksums/permissions pass. Physical-device, field-GPS, production capacity and off-host/scheduled/full-object-service disaster recovery remain unverified as documented; native integration is a handoff, not claimed by server acceptance.
+
+## Design-system reference — 27 October 2026
+
+Scope: documentation only, on `gi/design-system-guide` from `origin/main` at `53732bc`. The [design-system guide](../product/design-system.md) transcribes the user-supplied visual reference and is linked from root/UI instructions, the UI README and the reserved implementation folder. See the [task handoff](../tasks/design-system-guide.md).
+
+All seven affected Markdown files passed local path/link, fence and whitespace checks; 48 relative links resolve. The documented 11 text styles, three brand HEX values and spacing/radius/touch values were checked for transcription consistency. Source filename, dimensions and SHA-256 are recorded in the guide. The original backend checkout remained clean; no Swift, font, project, API or server file changed. At this documentation-validation checkpoint, publication had not yet been requested; commit, push and PR were subsequently authorized in the task handoff.
+
+No Simulator/build/database test was run for this documentation-only change. Runtime Gabarito rendering, Dynamic Type behavior, color contrast, Light/Dark visuals, accessibility and formal HIG conformance remain unverified. The source's HIG label is not treated as audit evidence.
+
+
+## Native traveller sessions and API queries — 28 October 2026
+
+[Auth/API task](../tasks/ios-auth-api.md), branch `gi/ios-auth-api` from main `5e2d943`:
+**21 package tests passed**, plus **6 C67 Simulator tests passed** on iPhone 18 Pro / iOS 27.0
+(4 native Account/Keychain and 2 mock UI tests). Tests ran after code changes. Native Keychain
+create/update/read/delete and backend isolation require an ad hoc signed Simulator test host;
+an initial unsigned failure was corrected by using `CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-`.
+CI uses those flags with explicit `C67_DATA_MODE=mock`; no signing team or storage downgrade added.
+
+The live Account form/navigation/dismiss test passed separately at standard and accessibility XXXL
+text sizes, with screenshots inspected. A temporary external Swift probe using the changed adapter
+read a real HTTPS `search_rundowns` page from the configured homelab (one published synthetic item).
+No shared Auth account, trip or database object was created. Live catalog loading also ran in the app.
+Pinned formatting, contract/fixture/seed validation and whitespace checks passed.
+
+This establishes native session logic against synthetic Auth responses, real Simulator Keychain,
+mock UI, live form rendering and a real public query. Successful homelab traveller login/refresh/logout,
+owner trip/graph reads, physical devices, iOS 18 runtime and a full accessibility audit remain
+unverified. Search/My Trips/graph UI and remaining server RPC adoption are separate slices.
+No commit, push, PR or server deployment occurred in this batch.
+
+
+## Expanded native Auth/session — 28 October 2026
+
+[Current Auth task and verification](../tasks/ios-auth-api.md) supersede the earlier existing-account-only
+checkpoint. Package tests: **29 passed**. Final native unit/integration run: **9 passed, 1 skipped**
+(shared cohort already cleaned), on iPhone 18 Pro / iOS 27.0. The matching isolated GoTrue v2.197.0
+and real SMTP sink exercised registration/resend/PKCE/relaunch/refresh/recovery/password update/
+logout with actual Simulator Keychain. A prior combined run passed all 9 then-existing tests,
+including real shared native two-account owner privacy and both mock UI smoke paths.
+
+Shared Auth callback/password/refresh settings were deployed with private config backup and rollback;
+only Auth restarted, its 10 Supabase siblings retained IDs/start times, confirmation remains required,
+and final shared counts are one original user/zero trips. The exact temporary shared accounts,
+owned trips, isolated fixture containers/volume/networks/files and SSH tunnel were cleaned.
+SMTP verified TLS/authentication; external inbox delivery was not tested. Release Simulator build passed.
+
+Interactive signup form typing now passes. The native strong-password suggestion intercepted
+XCTest input; the test closes that suggestion before entering synthetic text, preserving native
+SecureField/AutoFill behavior. Passive Account restore also no longer clears callback error feedback.
+A regression test checks preservation until an explicit successful retry.
+
+Final targeted verification on iPhone 18 Pro / iOS 27.0, Xcode 27.1: **9 passed, 0 skipped** (six
+Account/Keychain/state tests plus three live UI scenarios). Account and registration/recovery
+passed with Accessibility XXXL text and scrolling. A system-opened synthetic callback from Home
+reopened Account and displayed the missing pending-flow error. Screenshots were inspected. This
+is OS-routing/rejection evidence; real PKCE exchange was exercised by the isolated test above.
+A final standard-text run also passed all three live UI cases.
+The attempted Dark launch argument did not change screenshot appearance and was removed;
+Dark appearance, physical-device/iOS 18 evidence and external inbox delivery remain unverified.
+
+Final clean mock scheme run: **11 passed, 4 skipped** with all live opt-ins disabled; no failures.
+The skips cover the isolated provider, shared cohort, live form and system callback tests. No
+commit/push/PR occurred. All 99 affected local Markdown links resolved; private configuration
+values were absent from unignored source, pinned formatting passed for all 36 Swift files, and
+whitespace checks passed. Release contains no inherited Debug endpoint/key.
+
+
+## Native Sign in with Apple — 28 October 2026
+
+[Apple task](../tasks/apple-auth.md): native button, nonce/state, Supabase ID-token exchange, existing
+Keychain/refresh/logout isolation and matching Apple credential-revocation checks are implemented.
+Shared Apple provider activation subsequently passed as recorded below; Apple Developer provisioning/real authorization remain pending.
+
+Package: **34/34 passed** (HTTP stubs, including five Apple transport/session cases). Full mock
+Simulator scheme: **15 passed, 4 intentionally skipped**, including Apple nonce/state/expiry and
+revoked-vs-transient credential-state tests. Final live UI: **3/3 passed**, iPhone 18 Pro / iOS 27.0,
+Xcode 27.1, Accessibility XXXL. Exported screenshots confirm the official button and scrollable
+forms. The synthetic email/recovery and system-callback regressions pass without sending email
+or completing Apple authorization. The test helper loads lazy Form rows before XCTest taps;
+it does not mistake a large row's isHittable snapshot for a failed action. No Dark/device claim.
+
+Before activation, homelab preflight and TLS-verified `/auth/v1/settings` HTTP 200 confirmed Apple disabled.
+The guarded deployment helper passes compilation and preservation/overwrite/drift-layout checks;
+its read-only plan pins only three Apple environment keys and an Auth-only restart with backup,
+rollback and sibling lifecycle verification. No live Auth configuration or database write occurred during that implementation checkpoint.
+The exact [plan](../history/homelab-apple-auth-plan.md) was subsequently approved and applied as recorded below. No matching local signing profile was
+found; an entitlement in source/ad-hoc Simulator signature does not establish Developer capability.
+
+OpenAPI/fixtures/bundled copy/seed validate. All 119 affected local Markdown links resolved,
+private configuration values were absent from unignored source, formatting passed for 41 Swift
+files and whitespace checks passed. No commit, push or PR occurred for this extension.
+
+Unsigned Release build for generic iOS also passed. Its bundle remains live with empty production
+client credentials and no inherited homelab endpoint; the Apple entitlement is present in the
+source configuration. Xcode reports the existing interface-orientation warning and AppIntents
+metadata-skip message; no device provisioning or real Apple authorization is implied.
+
+
+## Shared Apple provider activation — 28 October 2026
+
+Giovan explicitly approved the reviewed native-only Apple provider activation. Rechecked fingerprint
+matched the approved plan; only the three Apple settings in Auth changed, with nonce checks enabled
+and audience `io.pibeebee.c67.starter`. The same GoTrue v2.197.0 image was recreated for Auth only.
+
+Auth is healthy. Ten other Supabase service IDs/start times are unchanged. Private backup
+`/home/giovan/backups/c67/before-apple-auth-2026-10-28T061902Z` passes checksum and permission checks;
+`.env` and tunnel Compose are unchanged. TLS-verified public settings HTTP 200 reports Apple=true
+and email=true. No rollback was needed, no database operation was issued, and no real Apple login
+was attempted. Apple Developer capability/provisioning and user authorization remain the final
+acceptance gates. See [deployment and rollback record](../history/homelab-apple-auth-plan.md).
+
+## Primary checkout consolidation — 28 October 2026
+
+At Giovan's request, the native Auth/API work and merged design-system guide were consolidated
+into the primary C67 checkout on `gi/trip-graph`, matching the project opened in Xcode. The existing
+Apple signing team was retained in `project.yml`; the Apple entitlement uses the existing
+`apps/ios/C67.entitlements` file. The generated project and callback configuration were checked.
+Ignored development/server configuration and the previously staged entitlement were preserved.
+
+Verification from the consolidated checkout: Simulator build/install/launch passed; the Swift
+package passed **34/34** tests; `C67UITests/StarterUITests/testAccountUsesConfiguredMode` passed
+**1/1** in live mode on iPhone 18 Pro / iOS 27.0. It opened Account and verified the native Apple
+button plus email/password controls without submitting credentials. SwiftFormat and whitespace
+checks passed. Xcode's visible project path, `gi/trip-graph` branch, selected signing team and
+Sign In with Apple capability were observed. No real Apple authorization was performed.
+
+Private archives include tracked/untracked files, meaningful ignored configuration, original Git
+indexes and patches; archived bytes were verified with SHA-256. A verified Git bundle and local
+branch refs retain history. After destination-file comparison, the unused `C67-ios-auth-api` and
+`C67-design-system-guide` worktrees were removed. Only the primary checkout remains.
+At the consolidation checkpoint the changes were local and uncommitted; Giovan subsequently
+authorized commit, push and a review PR.
+
+## Auth PR preparation — 28 October 2026
+
+The consolidated checkout passed the full mock C67 scheme on iPhone 18 Pro / iOS 27.0:
+**15 passed, 0 failed, 4 intentionally skipped** (isolated/shared integration and live UI opt-ins).
+The previously recorded 34/34 package tests and 1/1 live Account UI check remain applicable;
+no Swift implementation changed after those checks. OpenAPI/fixtures/seed validation, SwiftFormat,
+Python source parsing, ignored-config checks and whitespace checks passed before commit.
+
+After the user reported signing in, a read-only database transaction confirmed an Apple identity
+with a recent sign-in, a session and an owned trip. This establishes live backend sign-in acceptance;
+Hide My Email, relaunch/refresh/logout/revocation and device-specific acceptance are not inferred.
+No new shared data/configuration write or deployment was performed during PR preparation.
+
+## Journey POC custom origins and destination preferences — 6 November 2026
+
+The standalone C67 Journey app supports selectable origins, multiple Jakarta target areas and required sourced spots. All 265 package test functions and 26 Showcase unit/UI cases passed. A bounded Mac MapKit probe returned address/POI results for three non-Bundaran-HI origins. The final signed app was installed on the iPhone; automatic launch was blocked by its locked screen. Simulator Demo evidence does not establish physical-device routing, live WeatherKit or field acceptance. See the [task and evidence record](../../research/poc-journey/docs/tasks/journey-custom-origins-and-areas.md).
+
+## Recommendations Sketch slice — 11 November 2026
+
+The generic Simulator build and relevant mock UI interactions passed on iPhone 18 Pro / iOS 27.2, including an accessibility text-size check. The shared `packages/C67Backend` package passed 34 tests on macOS. Xcode Canvas rendered the Home, processing and recommendation list previews; the native Home menu was separately exercised by UI test. Targeted SwiftFormat lint passed for 17 files. The repository-wide check reports formatting in 13 other files, including existing Preferences, Splash, evaluation and TripSense changes; those unrelated edits were preserved. Live provider, physical-device, VoiceOver and iOS 18 runtime acceptance remain unverified. See the [task record](../tasks/recommendations-swiftui.md).
+
+
+## Connected Hi-Fi UI completion — 11 November 2026
+
+The new Add Places, saved itinerary, save-name alert, populated Home and per-stop arrival screens are connected to the existing planner and trip events. Final generic Simulator build passed. Fourteen creation unit tests and two recommendation UI checks passed together (16/16); the focused regression run passed 17/17 after fixing the three failures in the broader run. Latest results cover all 15 affected iPhone UI cases on iPhone 18 Pro / iOS 27.2. The iPad Pro 11-inch (M5) / iOS 27.2 rendered eight screen states and separately passed a reading-width check plus an accessibility audit for descriptions, traits and text clipping. This does not establish a full VoiceOver or contrast audit.
+
+The shared package passed 34 tests; targeted formatting passed 47 files and whitespace checks passed. The full formatter still reports 16 unrelated existing files. Add Places was observed in Xcode Canvas after clearing a stale initializer-link cache. Live provider/search, physical-device, full VoiceOver/Reduce Motion and iOS 18 runtime acceptance remain unverified; iPad retains its existing orientation warning. See the [task and result record](../tasks/hi-fi-ui-completion.md) and [Canvas guide](../../apps/ios/README.md).
+
+
+## Journey POC consolidation — 9 November 2026
+
+A separate `codex/poc-journey-consolidation` worktree starts at main `48d7139` and carries the existing local Journey POC changes. Showcase is the user entry point; Trip Integration remains the shared engine. The original publication manifest and dated reports are preserved, with 20 reviewed maintained-source changes in a separate development ledger.
+
+Local checks passed 265 shared package test functions, 51 Python tests, 55 CLI tests, 126 native harness tests and four native Simulator builds. App/UI coverage is 39 unique cases: six unaffected Foundation Lab cases from full runs, three corrected Quality cases from a targeted rerun, four Trip Integration cases and 26 Showcase cases. TJ offline checks matched all 64 expected outcomes, covered 1,000 departure/access inputs and audited 5,552 pinned-source observations without invariant failures. These include expected conflicts and unsupported/missing-data cases; source coverage is distinct from runtime routing.
+
+The original checkout's pre-existing content and index were preserved. Unrelated icon archives added during execution were retained and excluded from the worktree. No source commit, push, deployment, remote CI run or new live-provider/device acceptance is claimed. See the [consolidation report](../../research/poc-journey/docs/consolidation-report-2026-11-09.md) for bundle provenance, corrected failures and preservation evidence.
+
+## PR 17 compatibility and CI repair — 12 November 2026
+
+Policy update: PR 17 now targets `dev` under the [local-first workflow](../tasks/dev-main-ci-policy.md). Feature review uses local evidence; only dev/main promotions require the compact cloud gate. The earlier full-cloud runs were cancelled, not passed. Reconciliation preserved application/client/server/contract sources from `3f03dd1`; local quick verification passed 22 planning tests, 36 Swift package tests, four policy tests, contracts and formatting. Prior targeted Simulator results below remain dated evidence rather than a new full run.
+
+The focused itinerary drag, recalculation and saved-order test passed on GitHub's iOS 18.5 / Xcode 16.4 runner. Related creation unit tests and Home/creation UI suites passed 26/26 locally in mock mode on iPhone 17e / iOS 27.2. The earlier full iOS 18.5 run passed Home sizing after correcting native fallback padding but failed the drag scenario; that failure remains recorded rather than treated as a successful full run.
+
+The temporary diagnostic workflow was removed. Starter checks retain all existing suites, cancel superseded PR runs, avoid a duplicate successful menu wait and preserve failure logs/result bundles. A subsequent ARM style job was cancelled without running any steps because GitHub could not allocate a hosted runner; production style/iOS checks now select standard Intel runners, with Xcode 16.4 explicit for the compatibility suite. Final approval is gated on all checks for the final PR head. See the [repair evidence and acceptance gate](../tasks/pr17-ci-repair.md); physical-device, manual VoiceOver and live planning-service acceptance remain separate.
+
+## Reasonable Luna ordering integration — 15 November 2026
+
+The new untimed Pocket path passed 39 Python service tests, 63 shared Swift tests,
+44 creation/preference app unit cases and three synthetic UI cases on iPhone 18
+Pro Max / iOS 27.2, Xcode 27.2. Contract fixtures and the pinned 662-file formatting
+check passed. Review/save retains unknown places, nullable duration, source context
+and request identity without ETA/hours prerequisites. One actual five-place
+request fetched five Open-Meteo records and ten calculated light windows, then
+failed at Luna with HTTP 524 after about 125 seconds. Selection/error handling was
+observed; successful live generation/review/save is not claimed. No automatic
+provider retry or substitute answer was used. See [full evidence](../evidence/pocket-order-integration-2026-11-15/README.md)
+and [scope](../tasks/pocket-reasonable-order-integration.md). Shared deployment,
+physical-device/TestFlight and later Hi-Fi work remain separate.
+
+## Pocket ordering save diagnosis — 15 November 2026
+
+The live retest reached a saved trip detail titled `Live order acceptanceacceptance`; the test expected `Live order acceptance`. The test's cursor-relative deletion left a suffix. The replacement helper now selects the entire value and verifies exact text before Save. The untimed save dialog now describes retaining the recommendation. App unit suite: 34 passed; repository rename/save/reload/start regression: 1 passed; formatting and whitespace checks passed. No new UI interaction test or provider call was run. The native selection menu and final exact-title UI assertion remain pending the next acceptance run. See [diagnosis, changes and logs](../tasks/pocket-order-save-debug.md).
+
+## Second save-name correction — 15 November 2026
+
+The next live UI acceptance failed on the Select All menu's semantic tap. The helper now taps the menu center coordinate and retains exact text assertions. Adjacent review also fixed the presenter's rename busy-state and stale-session response gaps. 37 app unit tests and all 63 package tests passed; app/UI test targets compiled; formatting and whitespace checks passed. No UI interaction tests or provider calls were executed in this correction. Menu interaction and complete UI save remain pending. See [full diagnosis and logs](../tasks/pocket-order-save-debug.md#second-correction-after-the-0844-live-ui-run).
+
+
+## Connected trip-flow repair and live acceptance — 15 November 2026
+
+The unstable rename test interaction was replaced with trailing-edge taps and verified clearing, retaining exact-name assertions. The itinerary retry path now retries the requested name instead of applying an old title after a rename failure. The full connected UI run passed 16/16, and a separate actual server/Luna five-place UI acceptance passed 1/1 through exact rename/save, all five saved stops, trip start and manual first arrival on iPhone 18 Pro Max / iOS 27.2. The live run logged one Luna request, 104.884 seconds, reported `gpt-6-luna` / `max` / Responses; saving and starting did not regenerate the recommendation.
+
+App unit definitions: 110 passed, 4 external opt-ins skipped, 0 failed. Client package: 63 passed. Pocket synthetic server: 39 passed. Contracts, all 662 Swift files' pinned formatting check and whitespace check passed. The earlier failed UI attempts are retained and distinguished from the final passing run. Live input pins are fixed public test data; actual server/model processing uses in-memory trip storage, while package tests separately exercise persistence. No physical-device, full VoiceOver, iOS 18 runtime, provider dashboard or deployment acceptance is implied. See [the task](../tasks/pocket-order-save-debug.md) and [complete logs, request/result and screenshots](../evidence/pocket-flow-repair-2026-11-15/README.md).
+
+
+## Pocket ordering recovery on the normal app — 15 November 2026
+
+The normal Pocket app reported the missing development read token and opened settings on the existing five-place draft. A separate live test used the app’s Keychain and local Pocket server, left processing with Continue later, relaunched the app and recovered all five places with one server job and one Luna call (136.155 seconds). Both focused UI tests passed on iPhone 18 Pro Max Simulator with iOS 27.2. The Swift package passed 64 tests. See [the repair and evidence](../tasks/pocket-order-recovery.md).
+
+
+## Homelab Pocket ordering and itinerary update — 15 November 2026
+
+Pocket Beta v3 runs in the existing homelab Compose project behind `https://pocket.giovanc.com`. The existing volume and connection credential were preserved. A live authenticated order returned all three selected public test places in 78.8 seconds, and a repeated submission reused the job. Three focused synthetic Simulator UI tests, 65 Swift package tests and 39 Python server tests passed. See [deployment, rollback and UI evidence](../tasks/pocket-homelab-itinerary-hifi.md).
+
+
+## Pocket driving ETAs and local reorder — 15 November 2026
+
+The device now quotes actual automobile ETA and road distance from MapKit. Manual reorder preserves the original Luna response and reroutes without a new ordering request. 67 package tests and two focused synthetic Simulator UI cases passed. The production MapKit adapter separately returned real Jakarta quotes before and after reorder on macOS with a synthetic order fixture. See [checks and evidence](../tasks/pocket-mapkit-driving-eta.md).
+
+## Home and recommendation Hi-Fi refresh — 15 November 2026
+
+The empty Home screen now presents a plan action wired to the existing recommendation flow, and the recommendations list heading follows the supplied Hi-Fi. The map symbol is a system placeholder for the reference illustration. Preference selection limits, departure date editing and active navigation behavior were not changed.
+
+On iPhone 18 Pro Max Simulator (iOS 27.2), eight mock UI tests for Home and recommendations passed, including large text, selection removal and saving. A final targeted Home test passed after correcting the button label color. Results: `/tmp/c67-hifi-update-tests.xcresult` and `/tmp/c67-hifi-home-final.xcresult`. SwiftFormat and `git diff --check` passed. This does not establish physical-device or live-provider behavior.
+
+## Preference and POI presentation — 15 November 2026
+
+Preference search and quick picks use their parent group symbols. MapKit POI categories are mapped to display labels and SF Symbols in recommendations, selected places and main spot; unknown categories use a generic pin. On iPhone 18 Pro Max Simulator (iOS 27.2), six synthetic recommendation UI tests passed, including search, selection and removal. After a symbol availability test found an unsupported symbol, it was replaced; eight preference/catalog tests and two focused UI tests passed on rerun. Results: `/tmp/c67-hifi-poi-20261115.xcresult` and `/tmp/c67-hifi-poi-verified.xcresult`; the failed diagnostic remains in `/tmp/c67-hifi-poi-final-20261115.xcresult`. Live MapKit discovery and physical-device display were not checked in this pass.
+
+## Itinerary departure date — 15 November 2026
+
+Experience itineraries support selecting a departure date and time and recalculate driving estimates while preserving the Luna order. POI icons and labels use the same MapKit category mapping as recommendations. The 67 Swift package tests passed, including date persistence and no additional order request; the focused synthetic iPhone 18 Pro Max Simulator UI test passed for opening/cancelling the editor, reordering and saving. The first UI attempt failed because the test matched two Cancel buttons, and the corrected rerun passed. UI interaction with a different date, live MapKit after a date change and physical-device validation remain untested. Result: `/tmp/c67-itinerary-date-final-20261115.xcresult`.
+
+## Foreground route and completion UI — 15 November 2026
+
+Itinerary maps request MapKit road geometry, and active trips show a MapKit route and route steps in-app. Foreground GPS arrival requires two distinct recent fixes with accuracy at most 50 m and distance plus uncertainty at most 100 m. Completion shows recorded stop names without invented visit timestamps. Pocket Simulator build passed, as did seven location/splash unit tests and a synthetic completion-preview UI test (`/tmp/c67-route-validation-20261115.xcresult`). Real route rendering, GPS arrival, denied/reduced permission, rerouting, movement and end-to-end completion have not been verified on device or with simulated movement. Existing UI tests that tap the former manual arrival button require updating for the GPS flow. This is not verified live turn-by-turn navigation.
+
+
+### Fork promotion iOS compatibility audit
+
+The integration job passed on the audited promotion runs. Xcode 16.4 initially surfaced SDK-specific Swift concurrency errors in WeatherKit, animation closures, and the retained geocoder, along with SwiftUI overload ambiguities. Once those were addressed, the app build reached a Swift 6.1.2 IRGen crash while adapting the Trip date binding's setter. The failing build used the iOS 18.5 SDK with an iOS 18.6 Simulator. In the app, the explicit setter closure follows the workaround documented for the same Swift compiler crash. See the [failed promotion job](https://github.com/HendraaaIrwn/C67/actions/runs/45729765806/job/139608766935) and [Swift issue](https://github.com/swiftlang/swift/issues/82491).
+
+A local preflight run in the evening also reproduced a six-case shared-package failure because a test fixture constructed a trip window that crossed midnight in Asia/Jakarta. The fixture now uses a fixed date and the repository shares its clock with the route verification that it later expires.
+
+Promotion and local smoke verification share one app command, and the promotion job checks for Xcode 16.4 and an iOS 18.x Simulator. Local Xcode 27.2 verification passed 217 shared Swift tests, 140 app tests, both mock smoke flows, the synthetic Trip schedule UI test, and an x86_64 build-for-testing. These runs exercise the current SDK. The Xcode 16.4 / iOS 18.x app smoke outcome is tracked by [promotion PR #2](https://github.com/HendraaaIrwn/C67/pull/2).
+
+The next promotion run progressed past the app's date-binding crash. It stopped while compiling the Splash unit test because the iOS 18.5 SDK returns non-Sendable AVAssetTrack values. The media-only test now runs outside the main actor and still checks the original duration and track counts. This patch has no older-SDK app test result yet. See the [promotion job](https://github.com/HendraaaIrwn/C67/actions/runs/45852713992/job/140023349158).
+
+The same late-evening local smoke run exposed a second wall-clock-dependent fixture in the app tests. The direct scheduling scenario now shares a synthetic daytime clock between the presenter and repository. With both app-test fixes applied, Xcode 27.2 passed the 140 app tests, the two UI smoke flows, and an x86_64 build-for-testing. The current host cannot run the pinned Xcode 16.4 and iOS 18.x combination.
+
+### Fork promotion on Xcode 27.2
+
+The fork now selects GitHub's Apple Silicon `xcode-27` runner and pins Xcode 27.2 (`27B52`). Promotion smoke tests select an iPhone 18 Pro with the iOS 27.2 Simulator runtime. The minimum deployment target remains iOS 18. This smoke check exercises the iOS 27.2 runtime.
+
+The matching local preflight passed 217 shared Swift tests, 140 app Swift Testing cases, 18 app XCTest cases, and both UI smoke flows in mock mode. Two opt-in live authentication tests were skipped. Contract, planning, formatting and Simulator selection checks also passed. The separate manual Journey PoC build could not fetch its existing ONNX Runtime Swift package because the upstream repository returned HTTP 404. The PoC is outside the fork promotion checks.

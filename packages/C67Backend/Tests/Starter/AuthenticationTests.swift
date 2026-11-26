@@ -1,0 +1,325 @@
+import Foundation
+#if canImport(FoundationNetworking)
+    import FoundationNetworking
+#endif
+import Testing
+import C67Domain
+import C67Data
+
+private let accountID = "91111111-1111-4111-8111-111111111111"
+private func tokenJSON(_ access: String = "synthetic-access", refresh: String = "synthetic-refresh") -> String {
+    """
+    {"access_token":"\(access)","refresh_token":"\(refresh)","token_type":"bearer","expires_in":3600,
+     "user":{"id":"\(accountID)","email":"traveller@example.test"}}
+    """
+}
+private func auth(_ http: HTTPHarness, store: MemorySessionStore = .init(), clock: TestClock = .init()) throws -> SupabaseAuthentication {
+    try .init(baseURL: http.baseURL, clientKey: "opaque-client-key", store: store,
+              session: http.session, now: { clock.now() })
+}
+
+@Test func signInRestoresSecureSessionAndLogoutUsesLocalScope() async throws {
+    let http = HTTPHarness { request in
+        #expect(request.value(forHTTPHeaderField: "apikey") == "opaque-client-key")
+        if request.url!.path.hasSuffix("logout") {
+            #expect(request.url!.query == "scope=local")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-access")
+            return .init(204, "")
+        }
+        #expect(request.url!.query == "grant_type=password")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+        let body = try requestBody(request)
+        #expect(body["email"] as? String == "traveller@example.test")
+        #expect(body["password"] as? String == "synthetic-password")
+        return .init(tokenJSON())
+    }
+    let store = MemorySessionStore()
+    let first = try auth(http, store: store)
+    #expect(try await first.accessToken() == nil)
+    let user = try await first.signIn(email: " traveller@example.test ", password: "synthetic-password")
+    #expect(user.id.uuidString.lowercased() == accountID)
+    let relaunched = try auth(http, store: store)
+    #expect(try await relaunched.currentAccount() == user)
+    #expect(await http.log.requests().count == 1)
+    try await relaunched.signOut()
+    #expect(try store.read() == nil)
+    let afterLogout = try auth(http, store: store)
+    #expect(try await afterLogout.accessToken() == nil)
+}
+
+@Test func restrictedPasswordSignInChecksEmailBeforeSendingAndBeforeInstallingSession() async throws {
+    let http = HTTPHarness { request in
+        let body = try requestBody(request)
+        #expect(request.url?.query == "grant_type=password")
+        #expect(body["email"] as? String == "traveller@example.test")
+        return body["password"] as? String == "synthetic-match"
+            ? .init(tokenJSON())
+            : .init(tokenJSON().replacingOccurrences(of: "traveller@example.test", with: "different@example.test"))
+    }
+    let store = MemorySessionStore()
+    let service = try SupabaseAuthentication(baseURL: http.baseURL, clientKey: "opaque-client-key", store: store,
+                                             session: http.session, passwordSignInAllowedEmails: ["traveller@example.test"])
+    await #expect(throws: AuthenticationError.invalidCredentials) {
+        try await service.signIn(email: "different@example.test", password: "synthetic-match")
+    }
+    #expect(await http.log.requests().isEmpty)
+    await #expect(throws: AuthenticationError.invalidCredentials) {
+        try await service.signIn(email: "traveller@example.test", password: "synthetic-mismatch")
+    }
+    #expect(try store.read() == nil)
+    let account = try await service.signIn(email: " Traveller@Example.Test ", password: "synthetic-match")
+    #expect(account.email == "traveller@example.test")
+    #expect(try store.read() != nil)
+}
+
+@Test func concurrentRefreshRotatesOnceAndPersistsBeforeReturning() async throws {
+    let http = HTTPHarness { request in
+        if request.url!.query == "grant_type=refresh_token" {
+            let body = try requestBody(request)
+            #expect(body["refresh_token"] as? String == "synthetic-refresh")
+            return .init(tokenJSON("rotated-access", refresh: "rotated-refresh"))
+        }
+        return .init(tokenJSON())
+    }
+    let store = MemorySessionStore(), clock = TestClock()
+    let service = try auth(http, store: store, clock: clock)
+    _ = try await service.signIn(email: "a@example.test", password: "synthetic")
+    clock.advance(3590)
+    try await withThrowingTaskGroup(of: String?.self) { group in
+        for _ in 0 ..< 12 { group.addTask { try await service.accessToken() } }
+        for try await value in group { #expect(value == "rotated-access") }
+    }
+    #expect(await http.log.requests().filter { $0.url!.query == "grant_type=refresh_token" }.count == 1)
+    let relaunched = try auth(http, store: store, clock: clock)
+    #expect(try await relaunched.accessToken() == "rotated-access")
+}
+
+@Test func refreshRejectionClearsSessionButTransientFailureRetainsRecovery() async throws {
+    for status in [400, 401, 403, 422, 429, 503] {
+        let http = HTTPHarness { request in
+            request.url!.query == "grant_type=password" ? .init(tokenJSON()) : .init(status, "{}")
+        }
+        let store = MemorySessionStore(), clock = TestClock()
+        let service = try auth(http, store: store, clock: clock)
+        _ = try await service.signIn(email: "a@example.test", password: "synthetic")
+        clock.advance(3601)
+        if status == 429 || status == 503 {
+            await #expect(throws: status == 429 ? AuthenticationError.rateLimited : .server(status: status)) { try await service.accessToken() }
+            #expect(try store.read() != nil)
+        } else {
+            await #expect(throws: AuthenticationError.sessionExpired) { try await service.accessToken() }
+            #expect(try store.read() == nil)
+            #expect(try await service.accessToken() == nil)
+        }
+    }
+}
+
+@Test func logoutPreventsLateSignInFromRestoringSession() async throws {
+    let started = TestLatch(), release = TestLatch()
+    let http = HTTPHarness { _ in
+        await started.signal(); await release.wait()
+        return .init(tokenJSON())
+    }
+    let store = MemorySessionStore(), service = try auth(http, store: store)
+    let login = Task { try await service.signIn(email: "a@example.test", password: "synthetic") }
+    await started.wait()
+    try await service.signOut()
+    await release.signal()
+    await #expect(throws: CancellationError.self) { try await login.value }
+    #expect(try store.read() == nil)
+    #expect(try await service.currentAccount() == nil)
+}
+
+@Test func logoutPreventsInFlightRefreshFromResurrectingSession() async throws {
+    let started = TestLatch(), release = TestLatch()
+    let http = HTTPHarness { request in
+        if request.url!.path.hasSuffix("logout") { return .init(204, "") }
+        if request.url!.query == "grant_type=refresh_token" {
+            await started.signal(); await release.wait()
+            return .init(tokenJSON("late-access"))
+        }
+        return .init(tokenJSON())
+    }
+    let clock = TestClock(), store = MemorySessionStore(), service = try auth(http, store: store, clock: clock)
+    _ = try await service.signIn(email: "a@example.test", password: "synthetic")
+    clock.advance(3590)
+    let refresh = Task { try await service.accessToken() }
+    await started.wait()
+    try await service.signOut()
+    await release.signal()
+    await #expect(throws: CancellationError.self) { try await refresh.value }
+    #expect(try await service.accessToken() == nil)
+    #expect(try store.read() == nil)
+}
+
+@Test func invalidLoginAndStorageFailuresNeverExposeUsableSession() async throws {
+    let rejected = HTTPHarness { _ in .init(400, #"{"error_code":"invalid_credentials"}"#) }
+    let invalid = try auth(rejected)
+    await #expect(throws: AuthenticationError.invalidCredentials) {
+        try await invalid.signIn(email: "a@example.test", password: "synthetic")
+    }
+    #expect(try await invalid.accessToken() == nil)
+    let http = HTTPHarness { _ in .init(tokenJSON()) }
+    let store = MemorySessionStore()
+    store.failWrites()
+    let service = try auth(http, store: store)
+    await #expect(throws: AuthenticationError.storageUnavailable) {
+        try await service.signIn(email: "a@example.test", password: "synthetic")
+    }
+    #expect(try await service.accessToken() == nil)
+}
+
+@Test func failedRefreshPersistenceFailsEveryWaiter() async throws {
+    let http = HTTPHarness { _ in .init(tokenJSON()) }
+    let store = MemorySessionStore(), clock = TestClock(), service = try auth(http, store: store, clock: clock)
+    _ = try await service.signIn(email: "a@example.test", password: "synthetic")
+    clock.advance(3601); store.failWrites()
+    await withTaskGroup(of: Void.self) { group in
+        for _ in 0 ..< 4 { group.addTask {
+            await #expect(throws: AuthenticationError.storageUnavailable) { try await service.accessToken() }
+        } }
+    }
+}
+
+@Test func corruptSessionCanBeRemovedAndOfflineLogoutIsExplicit() async throws {
+    let http = HTTPHarness { request in
+        if request.url!.path.hasSuffix("logout") { throw URLError(.notConnectedToInternet) }
+        return .init(tokenJSON())
+    }
+    let store = MemorySessionStore(Data("invalid-record".utf8)), service = try auth(http, store: store)
+    await #expect(throws: AuthenticationError.storageUnavailable) { try await service.accessToken() }
+    try await service.signOut()
+    #expect(try store.read() == nil)
+    _ = try await service.signIn(email: "a@example.test", password: "synthetic")
+    await #expect(throws: AuthenticationError.remoteSignOutFailed) { try await service.signOut() }
+    #expect(try store.read() == nil)
+    #expect(try await service.currentAccount() == nil)
+}
+
+@Test func cancellingOneRefreshWaiterDoesNotCancelOtherRequests() async throws {
+    let started = TestLatch(), release = TestLatch()
+    let http = HTTPHarness { request in
+        if request.url!.query == "grant_type=refresh_token" {
+            await started.signal(); await release.wait()
+            return .init(tokenJSON("rotated-access"))
+        }
+        return .init(tokenJSON())
+    }
+    let clock = TestClock(), service = try auth(http, clock: clock)
+    _ = try await service.signIn(email: "a@example.test", password: "synthetic")
+    clock.advance(3590)
+    let cancelled = Task { try await service.accessToken() }
+    await started.wait()
+    cancelled.cancel()
+    let other = Task { try await service.accessToken() }
+    await release.signal()
+    await #expect(throws: CancellationError.self) { try await cancelled.value }
+    #expect(try await other.value == "rotated-access")
+}
+
+@Test func staleTokenRejectionDoesNotDeleteNewerSession() async throws {
+    let http = HTTPHarness { request in
+        let body = try requestBody(request)
+        return .init(tokenJSON(body["email"] as? String == "second@example.test" ? "new-access" : "old-access"))
+    }
+    let service = try auth(http)
+    _ = try await service.signIn(email: "first@example.test", password: "synthetic")
+    _ = try await service.signIn(email: "second@example.test", password: "synthetic")
+    try await service.invalidateSession(rejectedToken: "old-access")
+    #expect(try await service.accessToken() == "new-access")
+    try await service.invalidateSession(rejectedToken: "new-access")
+    #expect(try await service.currentAccount() == nil)
+}
+
+@Test func deletionReusesItsReceiptAfterRelaunchAndClearsLocalDataOnlyAfterConfirmation() async throws {
+    let http = HTTPHarness { request in
+        if request.url!.path.hasSuffix("/account/deletion") {
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-access")
+            return try requestBody(request)["appleAuthorizationCode"] != nil
+                ? .init(202, #"{"status":"pending"}"#)
+                : .init(200, #"{"status":"deleted"}"#)
+        }
+        return .init(tokenJSON())
+    }
+    let store = MemorySessionStore()
+    let localTrips = MemorySessionStore(Data("synthetic-trips".utf8))
+    let config = try #require(AccountDeletionConfiguration(baseURL: http.baseURL) { id in
+        #expect(id.uuidString.lowercased() == accountID)
+        #expect(try store.read() != nil)
+        try localTrips.write(nil)
+    })
+    func makeAuthentication() throws -> SupabaseAuthentication {
+        try .init(baseURL: http.baseURL, clientKey: "opaque-client-key", store: store,
+                  session: http.session, accountDeletion: config)
+    }
+    let first = try makeAuthentication()
+    let signedIn = try await first.signIn(email: "a@example.test", password: "synthetic")
+    guard case .pending = try await first.deleteAccount(expectedAccountID: signedIn.id, appleAuthorizationCode: "synthetic-apple-code")
+    else { Issue.record("Expected accepted deletion"); return }
+    #expect(try await first.hasPendingAccountDeletion())
+    #expect(try localTrips.read() != nil)
+    let persisted = try #require(try store.read())
+    #expect(persisted.range(of: Data("synthetic-apple-code".utf8)) == nil)
+
+    let restarted = try makeAuthentication()
+    #expect(try await restarted.currentAccount() == signedIn)
+    await #expect(throws: AuthenticationError.operationInProgress) { try await restarted.accessToken() }
+    guard case .deleted = try await restarted.deleteAccount(expectedAccountID: signedIn.id, appleAuthorizationCode: nil)
+    else { Issue.record("Expected completed deletion"); return }
+    let requests = await http.log.requests().filter { $0.url!.path.hasSuffix("/account/deletion") }
+    #expect(requests.count == 2)
+    let receipts = try requests.map { try #require(try requestBody($0)["requestID"] as? String) }
+    #expect(Set(receipts).count == 1)
+    #expect(try await restarted.currentAccount() == nil)
+    #expect(try localTrips.read() == nil)
+    #expect(try store.read() == nil)
+}
+
+@Test func manualAppleRevocationChoiceSurvivesRelaunchBeforeTheServerResponds() async throws {
+    let http = HTTPHarness { request in
+        guard request.url!.path.hasSuffix("/account/deletion") else { return .init(tokenJSON()) }
+        let body = try requestBody(request)
+        #expect(body["useManualAppleRevocation"] as? Bool == true)
+        #expect(body["appleAuthorizationCode"] == nil)
+        return .init(200, #"{"status":"deleted"}"#)
+    }
+    let store = MemorySessionStore()
+    func authentication(_ harness: HTTPHarness) throws -> SupabaseAuthentication {
+        let config = try #require(AccountDeletionConfiguration(baseURL: harness.baseURL) { _ in })
+        return try .init(baseURL: harness.baseURL, clientKey: "opaque-client-key", store: store,
+                         session: harness.session, accountDeletion: config)
+    }
+    let interrupted = HTTPHarness { request in
+        if request.url!.path.hasSuffix("/account/deletion") { throw URLError(.timedOut) }
+        return .init(tokenJSON())
+    }
+    let first = try authentication(interrupted)
+    let account = try await first.signIn(email: "a@example.test", password: "synthetic")
+    await #expect(throws: AccountDeletionError.unconfirmed) {
+        try await first.deleteAccountWithManualAppleRevocation(expectedAccountID: account.id)
+    }
+    #expect(try await first.hasPendingAccountDeletion())
+
+    let restarted = try authentication(http)
+    guard case .deleted(requiresManualAppleRevocation: true) =
+        try await restarted.deleteAccount(expectedAccountID: account.id, appleAuthorizationCode: nil)
+    else { Issue.record("Expected deletion confirmation with instructions for Apple access"); return }
+    let original = try #require(await interrupted.log.requests().last)
+    let retried = try #require(await http.log.requests().last)
+    #expect(try requestBody(original)["requestID"] as? String == requestBody(retried)["requestID"] as? String)
+    #expect(try store.read() == nil)
+}
+
+@Test func accountDeletionRemovesOnlyThatAccountsLegacyPlanningDrafts() async {
+    let owner = UUID(), another = UUID()
+    let keys = ["C67.Planning.Pending.https://one.example.test.\(owner)", "C67.Planning.Pending.https://two.example.test.\(owner)",
+                "C67.Planning.Pending.https://one.example.test.\(another)"]
+    defer { for key in keys { UserDefaults.standard.removeObject(forKey: key) } }
+    for key in keys { UserDefaults.standard.set(Data("synthetic-draft".utf8), forKey: key) }
+
+    await HTTPPlanningRepository.eraseAccountData(for: owner)
+
+    #expect(UserDefaults.standard.data(forKey: keys[0]) == nil)
+    #expect(UserDefaults.standard.data(forKey: keys[1]) == nil)
+    #expect(UserDefaults.standard.data(forKey: keys[2]) != nil)
+}
