@@ -880,7 +880,7 @@ public actor PocketPlanningRepository: PlanningRepository {
             } else if job.input.enginePreferences?.orderingMethod?.usesFlexibleSchedule == true {
                 if requiresExternalAIConsent, needsExternalAI(job.input) { try requireExternalAIConsent(job.input) }
                 let planner = V41ItineraryPlanner(services: plannerServices(for: job.input), hours: { await self.openingHours(placeID: $0) }, synthetic: synthetic,
-                                                  reserveRoute: { try await self.retainRouteBudget($0, jobID: id, revision: revision) })
+                                                  routeCheckClock: jobClock, reserveRoute: { try await self.retainRouteBudget($0, jobID: id, revision: revision) })
                 let sourceJobs = job.input.enginePreferences?.orderingMethod?.replacesLegacyV42 == true ? [job] : Array(state.jobs.values)
                 let snapshots = sourceJobs.flatMap { $0.semanticSnapshots ?? $0.semanticSnapshot.map { [$0] } ?? [] }
                 result = try await planner.plan(job, snapshots: snapshots) { snapshot in

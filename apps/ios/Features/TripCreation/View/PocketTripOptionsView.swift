@@ -113,8 +113,10 @@ struct PocketScheduleOptionsSheet: View {
         })
     }
 
-    private func changeTripDate(to date: Date) {
-        presenter.changeTripDate(date)
+    private var tripDate: Binding<Date> {
+        Binding(get: { presenter.planning.startsAt }, set: { date in
+            presenter.changeTripDate(date)
+        })
     }
 
     var body: some View {
@@ -137,8 +139,7 @@ struct PocketScheduleOptionsSheet: View {
                             }
                             .accessibilityIdentifier("tripTimingChoice")
                         }
-                        DatePicker("Trip date", selection: Binding(get: { planning.startsAt }, set: changeTripDate),
-                                   displayedComponents: .date)
+                        DatePicker("Trip date", selection: tripDate, displayedComponents: .date)
                             .accessibilityIdentifier("tripScheduleDate")
                         DatePicker("Earliest departure", selection: Binding(get: { planning.startsAt }, set: {
                             planning.startsAt = $0
