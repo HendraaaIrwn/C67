@@ -9,6 +9,7 @@ struct V41ItineraryPlanner: Sendable {
     var quoteLimit = 72
     var candidateLimit = 500
     var synthetic = false
+    var routeCheckClock: @Sendable () -> Date = { .now }
     var reserveRoute: @Sendable (Int) async throws -> Void = { _ in }
     private static let logger = Logger(subsystem: "io.pibeebee.c67", category: "PlanningTiming")
     private static let localDurationSource = "local_visit_estimate"
@@ -458,7 +459,7 @@ struct V41ItineraryPlanner: Sendable {
         proposal.firstItinerary = true
         proposal.departureAt = Date(timeIntervalSince1970: Double(selected.spec.departure * 60))
         proposal.returnTravelSeconds = input.planningEndpoint == nil ? nil : selected.return_quote?.minutes.map { $0 * 60 }
-        proposal.experienceRouteCheckedAt = .now
+        proposal.experienceRouteCheckedAt = routeCheckClock()
         proposal.experiencePlan = semantic
         proposal.scheduleAssessment = result.assessment
         if onDevice, let semantic { proposal.warnings.append(contentsOf: semantic.contextWarnings) }

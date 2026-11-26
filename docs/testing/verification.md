@@ -776,3 +776,12 @@ Experience itineraries support selecting a departure date and time and recalcula
 ## Foreground route and completion UI — 15 November 2026
 
 Itinerary maps request MapKit road geometry, and active trips show a MapKit route and route steps in-app. Foreground GPS arrival requires two distinct recent fixes with accuracy at most 50 m and distance plus uncertainty at most 100 m. Completion shows recorded stop names without invented visit timestamps. Pocket Simulator build passed, as did seven location/splash unit tests and a synthetic completion-preview UI test (`/tmp/c67-route-validation-20261115.xcresult`). Real route rendering, GPS arrival, denied/reduced permission, rerouting, movement and end-to-end completion have not been verified on device or with simulated movement. Existing UI tests that tap the former manual arrival button require updating for the GPS flow. This is not verified live turn-by-turn navigation.
+
+
+### Fork promotion iOS compatibility audit
+
+The integration job passed on the audited promotion runs. Xcode 16.4 initially surfaced SDK-specific Swift concurrency errors in WeatherKit, animation closures, and the retained geocoder, along with SwiftUI overload ambiguities. Once those were addressed, the app build reached a Swift 6.1.2 IRGen crash while adapting the Trip date binding's setter. The failing build used the iOS 18.5 SDK with an iOS 18.6 Simulator. In the app, the explicit setter closure follows the workaround documented for the same Swift compiler crash. See the [failed promotion job](https://github.com/HendraaaIrwn/C67/actions/runs/45729765806/job/139608766935) and [Swift issue](https://github.com/swiftlang/swift/issues/82491).
+
+A local preflight run in the evening also reproduced a six-case shared-package failure because a test fixture constructed a trip window that crossed midnight in Asia/Jakarta. The fixture now uses a fixed date and the repository shares its clock with the route verification that it later expires.
+
+Promotion and local smoke verification share one app command, and the promotion job checks for Xcode 16.4 and an iOS 18.x Simulator. Local Xcode 27.2 verification passed 217 shared Swift tests, 140 app tests, both mock smoke flows, the synthetic Trip schedule UI test, and an x86_64 build-for-testing. These runs exercise the current SDK. The Xcode 16.4 / iOS 18.x app smoke outcome is tracked by [promotion PR #2](https://github.com/HendraaaIrwn/C67/pull/2).

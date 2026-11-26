@@ -139,10 +139,8 @@ private actor DurationApprovalRoutes {
 @Test(arguments: ["first", "edit", "expired", "differentOrigin", "unapproved", "sessionChanged"])
 func v52ShorterVisitApprovalReusesOnlyTheFreshMatchingProposal(scenario: String) async throws {
     let clock = TestClock()
-    clock.advance(Date.now.timeIntervalSince(clock.now()))
-    var input = try v52TightSixStops()
-    input.startsAt = Date(timeIntervalSince1970: ceil(Date.now.timeIntervalSince1970 / 60) * 60 + 600)
-    input.finishBy = input.startsAt.addingTimeInterval(280 * 60)
+    let input = try v52TightSixStops()
+    clock.advance(input.startsAt.addingTimeInterval(-600).timeIntervalSince(clock.now()))
     let purpose: PlanningPurpose = scenario == "edit" ? .plan : .firstItinerary
     let routes = DurationApprovalRoutes()
     let services = PocketPlanningServices(travel: { _, _, _, _ in await routes.quote() },
@@ -159,7 +157,6 @@ func v52ShorterVisitApprovalReusesOnlyTheFreshMatchingProposal(scenario: String)
     let callsBeforeApproval = await routes.calls
     #expect(callsBeforeApproval == 7)
 
-    clock.advance(Date.now.timeIntervalSince(clock.now()))
     if scenario == "expired" { clock.advance(121) }
     if scenario == "differentOrigin" { updated.origin.latitude += 0.01 }
     if scenario == "sessionChanged" { await repository.suspendOrdering() }

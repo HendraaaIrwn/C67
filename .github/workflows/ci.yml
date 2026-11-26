@@ -16,6 +16,7 @@ jobs:
       - name: Verify promotion policy
         run: |
           python3 -m unittest discover -s scripts -p 'test_integration_policy.py'
+          python3 -m unittest discover -s scripts -p 'test_simulator_destination.py'
           python3 scripts/check_integration_policy.py
       - uses: actions/setup-python@v5
         with:
@@ -54,19 +55,14 @@ jobs:
           swift test --package-path packages/C67Backend
       - name: App unit tests and two critical UI flows
         shell: bash
+        env:
+          C67_VERIFY_XCODE_VERSION: '16.4'
+          C67_VERIFY_IOS_VERSION: '18'
+          C67_VERIFY_DERIVED_DATA: ${{ runner.temp }}/c67-smoke
+          C67_VERIFY_RESULT_BUNDLE: ${{ runner.temp }}/ios-smoke.xcresult
         run: |
           set -o pipefail
-          destination=$(python3 scripts/simulator_destination.py)
-          xcodebuild -version
-          echo "Simulator destination: $destination"
-          xcodebuild -project apps/ios/C67.xcodeproj -scheme C67 \
-            -destination "$destination" -derivedDataPath "$RUNNER_TEMP/c67-smoke" \
-            -resultBundlePath "$RUNNER_TEMP/ios-smoke.xcresult" \
-            -only-testing:C67AppTests \
-            -only-testing:C67UITests/TripHomeUITests/testEmptyHomeNavigationAndPlanningEntry \
-            -only-testing:C67UITests/TripHomeUITests/testSavingMockProposalOpensTripAndReturnsHome \
-            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- C67_DATA_MODE=mock test \
-            | tee "$RUNNER_TEMP/ios-smoke.log"
+          bash scripts/verify_ios.sh ios-smoke 2>&1 | tee "$RUNNER_TEMP/ios-smoke.log"
       - name: Preserve failed smoke evidence
         if: failure()
         uses: actions/upload-artifact@v4

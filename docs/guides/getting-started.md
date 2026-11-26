@@ -103,12 +103,17 @@ itinerary (Before you go, Opening hours, Trip details and the return leg) appear
 
 ## 6. UI smoke test
 
-Run the **C67** scheme's Test action in Xcode. The legacy UI smoke test launches `--legacy-catalog`, opens the rundown and saves a mock trip. A new planning walkthrough has not been run in this implementation batch. Keep data mode set to `mock` for these tests. For command-line Simulator tests, use
-`CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- C67_DATA_MODE=mock`; ad hoc signing permits the
-native Keychain test to run without an Apple development team. Disabling signing causes Keychain
-access to fail in the test host. Ordinary build-only checks can still disable signing.
+Run `bash scripts/verify_ios.sh ios-smoke` to use the same app unit tests and two mock planning UI flows as the promotion workflow. The script uses the **C67** scheme and ad hoc signing so the test host can access Keychain. Full local verification, including the shared packages and backend checks, is available through `bash scripts/verify_local.sh ios-smoke`.
 
-CI also runs package tests, contract validation, the Simulator smoke test, and local Supabase database tests. See [Verification](../testing/verification.md) for what has actually run locally.
+To check the promotion toolchain and runtime before running tests on a compatible Mac, use:
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer \
+  C67_VERIFY_XCODE_VERSION=16.4 C67_VERIFY_IOS_VERSION=18 \
+  bash scripts/verify_ios.sh check
+```
+
+Replace `check` with `ios-smoke` to run the tests. `C67_VERIFY_IOS_VERSION` also accepts a minor version if you need to reproduce a specific run. The script reports the compiler and SDK separately from the Simulator destination. See [Verification](../testing/verification.md) for recorded checks.
 
 ## 7. Team conventions and formatting
 

@@ -187,7 +187,7 @@ extension V41ItineraryPlanner {
                                     explanation: result.reason, warnings: warnings, evidence: evidence, synthetic: synthetic)
         proposal.departureAt = schedule.departsAt
         proposal.returnTravelSeconds = input.planningEndpoint == nil ? nil : schedule.legs.last?.route.seconds
-        proposal.experienceRouteCheckedAt = .now
+        proposal.experienceRouteCheckedAt = routeCheckClock()
         proposal.experiencePlan = semantic
         proposal.firstItinerary = true
         proposal.scheduleAssessment = assessment
